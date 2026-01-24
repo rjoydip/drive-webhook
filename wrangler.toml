@@ -1,0 +1,13 @@
+name = "drive-webhook"
+main = "src/index.ts"
+compatibility_flags = ["nodejs_compat"]
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+    binding = "drive_kv"
+    id = "your-kv-namespace-id"
+
+[vars]
+    DRIVE_WEBHOOK_CLIENT_KEY = "your-admin-key"
+    WRANGLER_API_KEY = "your-wrangler-api-key"
+    DRIVE_WEBHOOK_URL = "https://drive-webhook.<your-subdomain>.workers.dev/webhook/drive"
