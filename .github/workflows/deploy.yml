@@ -3,17 +3,23 @@ name: Deploy
 on:
   push:
     branches:
-      - main
+      - fix-deployment
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Deploy
+    name: Deploy Worker
+
     steps:
       - uses: actions/checkout@v4
-      - name: Deploy
+
+      - name: Publish Worker
         uses: cloudflare/wrangler-action@v3
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          secrets: |
+            WEBHOOK_AUTH_CLIENT_KEY
+            CLOUDFLARE_API_TOKEN
+        env:
           WEBHOOK_AUTH_CLIENT_KEY: ${{ secrets.WEBHOOK_AUTH_CLIENT_KEY }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
