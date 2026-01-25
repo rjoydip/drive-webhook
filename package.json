@@ -18,7 +18,7 @@
 		"copy-if-missing": "node -e \"const fs=require('fs'); if(!fs.existsSync('client_secret.json')) fs.copyFileSync('client_secret.example.json','client_secret.json');\""
 	},
 	"simple-git-hooks": {
-		"pre-commit": "bun install --ignore-scripts --offline && bunx biome ci . && bunx tsgo --noEmit"
+		"pre-commit": "bun install --ignore-scripts --offline && bunx biome ci . && bun run typecheck"
 	},
 	"dependencies": {
 		"@hono/standard-validator": "^0.2.2",

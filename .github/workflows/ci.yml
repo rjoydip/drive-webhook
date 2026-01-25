@@ -22,11 +22,8 @@ jobs:
         with:
           version: latest
 
-      - name: Install Dependencies
-        run: bun i -D tsgo
-
       - name: Run Biome
         run: biome ci .
 
       - name: Run Typecheck
-        run: bunx tsgo --noEmit
+        run: bun typecheck
