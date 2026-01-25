@@ -1,5 +1,4 @@
 import { google } from "googleapis";
-import { web } from "../client_secret.json";
 import type { Bindings, OAuthSecrets, OAuthToken } from "./types";
 import { logger } from "./utils";
 
@@ -29,18 +28,11 @@ export async function getOrUpdateKV(
 
 type OAuthOptions = OAuthSecrets["web"];
 
-function resolveOAuthOptions(options?: OAuthOptions): OAuthOptions {
-	return options ?? web;
-}
-
 export function getOAuth2Client(options?: OAuthOptions) {
-	const { client_id, client_secret, redirect_uris } =
-		resolveOAuthOptions(options);
-
 	return new google.auth.OAuth2({
-		client_id,
-		client_secret,
-		redirect_uris,
+		client_id: options?.client_id,
+		client_secret: options?.client_secret,
+		redirect_uris: options?.redirect_uris,
 		forceRefreshOnFailure: true,
 	});
 }
