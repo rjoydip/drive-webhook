@@ -28,6 +28,6 @@ jobs:
         with:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: wrangler deploy --minify
+          command: deploy --minify
         env:
           WEBHOOK_AUTH_CLIENT_KEY: ${{ secrets.WEBHOOK_AUTH_CLIENT_KEY }}
