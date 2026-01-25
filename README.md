@@ -1,342 +1,429 @@
-# Google Drive Folder Watcher
+# 📁 Google Drive Webhook Worker
 
-This project listens for Google Drive folder changes using the Drive Changes API and push notifications, then processes those changes inside a **Cloudflare Worker**.
+A Cloudflare Worker built with **Hono** that integrates with **Google Drive Change Notifications**, supports **OAuth2**, **secure webhooks**, **rate limiting**, **KV persistence**, and **real-time logging**.
 
-## Prerequisites
+This README intentionally contains **both**:
 
-* Google Account
-* Cloudflare Account
-* Bun (recommended) or Node.js
-* Google Cloud project with Drive API enabled
+* ✅ **Modern API‑first documentation** (current, recommended)
+* 🛠️ **Manual / step‑by‑step setup & process flow** (legacy but still useful for debugging & understanding internals)
 
-## High-Level Architecture
+---
+
+## 🚀 Features
+
+* Google Drive **Change Notifications (watch API)**
+* Secure **Webhook validation** (`X-Goog-Channel-Token`)
+* OAuth2 **token exchange & refresh**
+* Cloudflare **KV-based persistence**
+* Built-in **rate limiting**
+* **Bearer token authentication**
+* CSRF & Secure Headers
+* Realtime **Wrangler log streaming**
+* Fully typed & validated inputs (Valibot)
+
+---
+
+## 🧱 Tech Stack
+
+* **Runtime:** Cloudflare Workers
+* **Framework:** Hono
+* **Validation:** `@hono/standard-validator` + Valibot
+* **Storage:** Cloudflare KV
+* **Auth:** Google OAuth2 + Bearer Auth
+* **Security:** CSRF, Secure Headers
+* **Rate Limit:** Custom middleware
+
+---
+
+## 🔐 Environment Variables
+
+| Variable                  | Description                       |
+| ------------------------- | --------------------------------- |
+| `WEBHOOK_AUTH_CLIENT_KEY` | Bearer token for protected APIs   |
+| `CLOUDFLARE_API_TOKEN`    | Token with `Logs:Read` permission |
+| `drive_kv`                | Cloudflare KV namespace           |
+
+---
+
+## 📦 KV Keys Used
+
+| Key                             | Purpose                     |
+| ------------------------------- | --------------------------- |
+| `accessToken`                   | Google OAuth access token   |
+| `refreshToken`                  | Google OAuth refresh token  |
+| `accessTokenExpiry`             | Token expiry timestamp      |
+| `google_drive_start_page_token` | Drive change tracking token |
+| `google_drive_folder_id`        | Folder being tracked        |
+| `worker_drive_webhook_url`      | Webhook endpoint            |
+| `driveWebhookToken`             | Webhook validation token    |
+| `driveChannelId`                | Drive watch channel ID      |
+| `driveResourceId`               | Drive resource ID           |
+| `driveChannelExpiration`        | Channel expiry time         |
+
+---
+
+## 🔑 Authentication
+
+Bearer authentication is required for **all routes except**:
+
+* `/`
+* `/health`
+* `/oauth/callback`
+* `/drive/webhook`
+
+```http
+Authorization: Bearer <WEBHOOK_AUTH_CLIENT_KEY>
+```
+
+---
+
+## ⚡ Rate Limiting
+
+| Route          | Limit      |
+| -------------- | ---------- |
+| `/`, `/health` | 60 req/min |
+| `/drive/*`     | 5 req/min  |
+| Others         | No limit   |
+
+---
+
+## 📡 API Documentation (Primary / Recommended)
+
+### 🟢 Root
+
+#### `GET /`
+
+Returns service status.
+
+```json
+{
+  "status": "Welcome to Drive Webhook",
+  "timestamp": 1700000000000
+}
+```
+
+---
+
+### 🩺 Health Check
+
+#### `GET /health`
+
+```json
+{
+  "status": "OK",
+  "timestamp": 1700000000000
+}
+```
+
+---
+
+### 🔍 Logging
+
+#### 📺 Realtime Wrangler Logs
+
+##### `GET /wrangler/tail`
+
+Streams Cloudflare Worker logs in real time.
+
+**Requires:** `CLOUDFLARE_API_TOKEN` with `Logs:Read`
+
+Content-Type: `text/event-stream`
+
+---
+
+### 🔐 OAuth APIs
+
+#### 🔗 Generate Google OAuth URL
+
+##### `POST /oauth/url`
+
+```json
+{
+  "client_id": "string",
+  "client_secret": "string",
+  "redirect_uris": ["string"]
+}
+```
+
+```json
+{
+  "auth_url": "https://accounts.google.com/o/oauth2/...",
+  "message": "🔗 Use this URL to authorize the application"
+}
+```
+
+---
+
+### 🔁 OAuth Callback
+
+#### `GET /oauth/callback`
+
+Query Params:
+
+| Name   | Type   |
+| ------ | ------ |
+| `code` | string |
+
+```json
+{
+  "message": "✅ OAuth2 code stored. You can close this tab.",
+  "google_auth_code": "string"
+}
+```
+
+---
+
+### 🔄 Exchange OAuth Code
+
+#### `POST /oauth/exchange`
+
+```json
+{
+  "google_auth_code": "string"
+}
+```
+
+```json
+{
+  "message": "Token exchange successful",
+  "accessToken": "string",
+  "refreshToken": "string",
+  "expiry_date": 1700000000000
+}
+```
+
+---
+
+## 📂 Google Drive APIs
+
+### 🚀 Initialize Change Tracking
+
+#### `POST /drive/startPageToken`
+
+```json
+{
+  "google_access_token": "string"
+}
+```
+
+```json
+{
+  "message": "Drive change tracking initialized",
+  "google_drive_start_page_token": "string"
+}
+```
+
+---
+
+### 👀 Create Watch Channel
+
+#### `POST /drive/watch`
+
+```json
+{
+  "google_access_token": "string",
+  "google_drive_start_page_token": "string",
+  "worker_drive_webhook_url": "https://example.com/drive/webhook"
+}
+```
+
+```json
+{
+  "message": "Drive watch channel created",
+  "channelId": "uuid",
+  "resourceId": "string",
+  "expiration": 1700000000000,
+  "webhookToken": "uuid"
+}
+```
+
+⚠️ HTTPS webhook URLs only
+
+---
+
+### 📩 Drive Webhook Receiver
+
+#### `POST /drive/webhook`
+
+Headers:
+
+| Header                  | Purpose            |
+| ----------------------- | ------------------ |
+| `X-Goog-Resource-State` | Event type         |
+| `X-Goog-Channel-Token`  | Webhook validation |
+
+```json
+{
+  "google_drive_folder_id": "string",
+  "google_access_token": "string",
+  "google_drive_start_page_token": "string"
+}
+```
+
+Behavior:
+
+* Ignores `sync` events
+* Validates webhook authenticity
+* Fetches & logs Drive changes
+* Updates KV automatically
+
+---
+
+## 🛠️ Manual Setup & Process Flow (Legacy / Reference)
+
+> Useful for understanding internals, debugging, or manual recovery.
+
+## High‑Level Architecture
 
 ```txt
 Google Drive (Folder)
     │
     │  Push Notification (changes.watch)
     ▼
-Cloudflare Worker (/webhook)
+Cloudflare Worker (/drive/webhook)
     │
     │  Fetch Drive Changes API
     ▼
-console.log("File uploaded:", file.name)
+Application Logic / Logs
 ```
 
-## Manual Process
+---
 
-### 1. Cloudflare Worker Setup (Webhook)
+## Prerequisites
 
-#### Generate Google OAuth URL
+* Google Account
+* Cloudflare Account
+* Bun (recommended) or Node.js
+* Google Cloud project with **Drive API enabled**
+
+---
+
+## Manual OAuth Flow (One‑Time)
+
+### 1️⃣ Generate OAuth URL
 
 ```bash
 bun run getAuthURL
 ```
 
-* Complete the OAuth flow in your browser
-* Copy the code from the redirect callback URL
-* Add it to `.env`:
+Complete the consent flow and copy the `code` from the redirect URL.
 
-```bash
-GOOGLE_AUTH_CODE=your_oauth_code_here
-```
+---
 
-#### Generate Access Token
+### 2️⃣ Exchange OAuth Code
 
 ```bash
 bun run genToken
 ```
 
-* Copy the `access_token` from console output
-* Add it to `.env`:
+Store the returned `access_token` if needed for testing.
 
-⚠️ Google access tokens expire. You must regenerate and update this periodically.
+⚠️ Access tokens expire — production uses refresh tokens automatically.
 
-### 2. Cloudflare KV Setup
+---
 
-#### Create KV Namespace (One-Time)
+## Cloudflare KV Setup
+
+### Create KV Namespace
 
 ```bash
 bunx wrangler kv namespace create drive_kv
 ```
 
-### Add Worker Secrets
+### Add Secrets
 
 ```bash
 bunx wrangler secret put WEBHOOK_AUTH_CLIENT_KEY
 bunx wrangler secret put CLOUDFLARE_API_TOKEN
-# OR
-bunx wrangler secret bulk secrets.json
 ```
 
-```bash
-# secrets.json
-{
-  "CLOUDFLARE_API_TOKEN": "your_cloudflare_wrangler_tail_api_token_here",
-  "WEBHOOK_AUTH_CLIENT_KEY": "your-secure-random-string"
-}
-```
+---
 
-### Add Values in KV
+## Deploy Worker
 
 ```bash
-bunx wrangler kv key put google_drive_folder_id "xxxxx" --namespace-id [NAMESPACE_ID]
-bunx wrangler kv key put worker_drive_webhook_url "xxxxx" --namespace-id [NAMESPACE_ID]
-```
-
-* `FOLDER_ID` → the Google Drive folder you want to monitor (one-time)
-
-### 3. Deploy the Worker
-
-```bash
-bun run deploy
-# OR
 bunx wrangler deploy
 ```
 
-Save your webhook URL: `https://drive-webhook.<your-subdomain>.workers.dev/drive/webhook`
+Webhook URL:
 
-### 4. Initialize Google Drive Changes Tracking
-
-#### Step 4.1: Get `startPageToken`
-
-```bash
-curl -X GET \
-  "https://www.googleapis.com/drive/v3/changes/startPageToken" \
-  -H "Authorization: Bearer ACCESS_TOKEN"
+```txt
+https://<worker>.<subdomain>.workers.dev/drive/webhook
 ```
 
-Response:
+---
 
-```json
-{
-  "startPageToken": "123456"
-}
-```
+## Manual Drive Watch Creation (Low‑Level)
 
-#### Step 4.2: Store Token in KV
-
-```bash
-bunx wrangler kv key put google_drive_start_page_token "123456" --namespace-id [NAMESPACE_ID]
-```
-
-Or (recommended for production):
-
-```bash
-bunx wrangler kv key put google_drive_start_page_token "123456" --namespace-id [NAMESPACE_ID] --remote
-```
-
-#### Find Your Namespace ID
-
-```bash
-bunx wrangler kv namespace list
-```
-
-Example output:
-
-```json
-[{ "title": "drive_kv", "id": "a1b2c3d4e5f6" }]
-```
-
-### 5. Create Watch Channel (Critical Step)
-
-#### Step 5.1: Generate Expiration Timestamp
-
-Google requires a near-future TTL (max ~7 days)
-
-* **Linux / macOS (24 hours)**
+### Generate Expiration Timestamp (24h)
 
 ```bash
 echo $(($(date +%s) * 1000 + 86400000))
 ```
 
-* **Windows PowerShell**
-
-```powershell
-[DateTimeOffset]::UtcNow.ToUnixTimeMilliseconds() + 86400000
-```
-
-#### Step 5.2: Create a Watch Channel
+### Create Watch Channel
 
 ```bash
 curl -X POST \
-  "https://www.googleapis.com/drive/v3/changes/watch?pageToken=<pageToken>" \
+  "https://www.googleapis.com/drive/v3/changes/watch?pageToken=<token>" \
   -H "Authorization: Bearer ACCESS_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
-    "id": "drive-folder-watch-001",
+    "id": "drive-watch-001",
     "type": "web_hook",
-    "address": "https://drive-webhook.<your-subdomain>.workers.dev/drive/webhook",
+    "address": "https://<worker>.workers.dev/drive/webhook",
     "expiration": EXPIRATION_TIMESTAMP
   }'
 ```
 
-✅ If successful → push notifications are active.
+---
 
-### 6. Test the Flow (Moment of Truth)
-
-#### Step 6.1: Upload a File
-
-Upload a file into your target Drive folder `webhook-test-folder`
-
-#### Step 6.2: Watch Logs
+## Observability
 
 ```bash
 bunx wrangler tail
 ```
 
-Expected output:
+Expected logs:
 
 ```log
-Connected to drive-webhook, waiting for logs...
-POST https://drive-webhook.<your-subdomain>.workers.dev/ - Ok
-(log) 📩 Drive change notification received
-(log) ✅ File uploaded: example.pdf
+📩 Drive change notification received
 ```
 
 ---
 
-## API way
+## 🛡️ Security Notes
 
-### Final Hardened Architecture
-
-```txt
-Google OAuth (one-time)
-        ↓
-KV: accessToken / refreshToken / expiry
-        ↓
-POST /drive/init   → store store drive start page token
-        ↓
-POST /drive/watch  → create webhook channel
-        ↓
-Google Drive → /drive-webhook
-        ↓
-Webhook token validation
-        ↓
-Race-safe token refresh
-        ↓
-Fetch & process changes
-```
-
-Use `x-admin-drive-webhook-key` header for authenticate API calls
-
-### 1. OAuth Setup (One-Time)
-
-OAuth is handled entirely via Hono endpoints.
-
-#### Start OAuth Flow
-
-```bash
-GET /oauth/url
-```
-
-* Redirects to Google consent screen
-* Approve access
-
-#### OAuth Callback
-
-Google redirects to:
-
-```txt
-/oauth2callback?code=...
-```
-
-This endpoint:
-
-* Exchanges code for tokens
-* Stores `accessToken`, `refreshToken`, and expiry in KV
-
-✅ OAuth setup is complete.
-
-### 2. Deploy the Worker
-
-```bash
-bun run deploy
-# or
-bunx wrangler deploy
-```
-
-Save your webhook URL:
-
-```txt
-https://drive-webhook.<your-subdomain>.workers.dev
-```
-
-### 3. Initialize Drive Changes Tracking
-
-#### Initialize Google Drive Start Page Token
-
-```bash
-POST /drive/init
-```
-
-What this does:
-
-* Fetches `startPageToken` from Google Drive
-* Stores it in KV as `google_drive_start_page_token`
-
-Response:
-
-```json
-{
-  "message": "Drive change tracking initialized",
-  "google_drive_start_page_token": "123456"
-}
-```
-
-### 4. Create Watch Channel (Critical Step)
-
-#### Create Watch Channel
-
-```bash
-POST /drive/watch
-```
-
-What this does:
-
-* Reads `google_drive_start_page_token` from KV
-* Generates a short-lived expiration (≤ 7 days)
-* Creates a Drive watch channel
-* Stores channel metadata in KV
-
-Response:
-
-```json
-{
-  "message": "Drive watch channel created",
-  "channelId": "uuid",
-  "resourceId": "resource-id",
-  "expiration": 1710000000000
-}
-```
-
-✅ Push notifications are now active.
+* Webhooks validated via `X-Goog-Channel-Token`
+* Token refresh is race‑safe using KV
+* Watch channels must be renewed before expiry
+* Always persist latest `startPageToken`
 
 ---
 
-## Local Development
+## 🏁 Deployment
 
 ```bash
-bun i
+wrangler deploy
 ```
 
-### Use Generated Bindings with Hono
+Ensure:
 
-```typescript
-// src/index.ts
-const app = new Hono<{ Bindings: CloudflareBindings }>();
-```
+* KV namespace bound
+* Secrets configured
+* OAuth credentials valid
 
-## Important Notes
+---
 
-* Webhooks are validated using `X-Goog-Channel-Token`
-* Token refresh is race-safe using KV locks
-* Watch channels must be renewed before expiration
-* Always persist the latest `google_drive_start_page_token`
+## 👥 Contributing
 
-## ✅ What This Setup Solves
+1. Fork the repo
+2. Create a feature branch
+3. Commit changes
+4. Open a PR
 
-* Fully automated Google Drive change tracking
-* Secure webhook validation
-* No polling
-* Production-ready Cloudflare Worker architecture
+---
+
+## 📜 License
+
+MIT © [@rjoydip](https://github.com/rjoydip)
