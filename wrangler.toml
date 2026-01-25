@@ -3,6 +3,14 @@ main = "src/index.ts"
 compatibility_flags = ["nodejs_compat"]
 compatibility_date = "2025-01-01"
 
+[observability]
+[observability.logs]
+enabled = false
+invocation_logs = true
+
+[observability.traces]
+enabled = false
+
 [[kv_namespaces]]
     binding = "drive_kv"
     id = "c13d7b7da71c4febb8a044624d9dc093"

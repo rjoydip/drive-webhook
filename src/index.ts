@@ -26,13 +26,29 @@ const app = new Hono<{ Bindings: Bindings }>();
 app.use(csrf());
 app.use(secureHeaders());
 
-app.use(
-	"/drive/*",
-	rateLimit({
-		windowMs: 1 * 60_000, // 1 minutes
-		max: 3,
-	}),
-);
+app.use("*", async (c, next) => {
+	const path = c.req.path;
+
+	// Health & root → higher limit
+	if (path === "/health" || path === "/") {
+		return rateLimit({
+			windowMs: 60_000,
+			max: 60,
+		})(c, next);
+	}
+
+	// Drive APIs → stricter limit
+	if (path.startsWith("/drive/")) {
+		return rateLimit({
+			windowMs: 60_000,
+			max: 5,
+		})(c, next);
+	}
+
+	// Everything else → no rate limit
+	return next();
+});
+
 app.use(
 	"*",
 	except(
@@ -530,8 +546,15 @@ app.post(
 );
 
 /* -------------------------------------------------------------------------- */
-/*                                   Health                                   */
+/*                                  Root & Health                             */
 /* -------------------------------------------------------------------------- */
+
+app.get("/", (c) => {
+	return c.json(
+		{ status: "Welcome to Drive Webhook", timestamp: Date.now() },
+		200,
+	);
+});
 
 app.get("/health", (c) => {
 	return c.json({ status: "OK", timestamp: Date.now() }, 200);
