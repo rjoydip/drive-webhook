@@ -63,9 +63,8 @@ bunx wrangler kv namespace create drive_kv
 ### Add Worker Secrets
 
 ```bash
-bunx wrangler secret put WRANGLER_API_KEY
-bunx wrangler secret put DRIVE_WEBHOOK_URL
-bunx wrangler secret put DRIVE_WEBHOOK_CLIENT_KEY
+bunx wrangler secret put WEBHOOK_AUTH_CLIENT_KEY
+bunx wrangler secret put CLOUDFLARE_API_TOKEN
 # OR
 bunx wrangler secret bulk secrets.json
 ```
@@ -73,20 +72,16 @@ bunx wrangler secret bulk secrets.json
 ```bash
 # secrets.json
 {
-  "DRIVE_WEBHOOK_CLIENT_KEY": "admin_drive_webhook",
-  "WRANGLER_API_KEY": "your_wrangler_api_key_here",
-  "DRIVE_WEBHOOK_URL": "https://drive-webhook.<your-subdomain>.workers.dev"
+  "CLOUDFLARE_API_TOKEN": "your_cloudflare_wrangler_tail_api_token_here",
+  "WEBHOOK_AUTH_CLIENT_KEY": "your-secure-random-string"
 }
 ```
 
 ### Add Values in KV
 
 ```bash
-bunx wrangler kv key put google_client_id "xxxxx" --namespace-id <NAMESPACE_ID>
-bunx wrangler kv key put google_client_secret "xxxxx" --namespace-id <NAMESPACE_ID>
-bunx wrangler kv key put google_redirect_uris '["xxxxx"]' --namespace-id <NAMESPACE_ID>
-bunx wrangler kv key put google_project_id "xxxxx" --namespace-id <NAMESPACE_ID>
-bunx wrangler kv key put folder_id "xxxxx" --namespace-id <NAMESPACE_ID>
+bunx wrangler kv key put google_drive_folder_id "xxxxx" --namespace-id [NAMESPACE_ID]
+bunx wrangler kv key put worker_drive_webhook_url "xxxxx" --namespace-id [NAMESPACE_ID]
 ```
 
 * `FOLDER_ID` → the Google Drive folder you want to monitor (one-time)
@@ -99,7 +94,7 @@ bun run deploy
 bunx wrangler deploy
 ```
 
-Save your webhook URL: `https://drive-webhook.<your-subdomain>.workers.dev/webhook/drive`
+Save your webhook URL: `https://drive-webhook.<your-subdomain>.workers.dev/drive/webhook`
 
 ### 4. Initialize Google Drive Changes Tracking
 
@@ -122,13 +117,13 @@ Response:
 #### Step 4.2: Store Token in KV
 
 ```bash
-bunx wrangler kv key put pageToken "123456" --namespace-id <NAMESPACE_ID>
+bunx wrangler kv key put google_drive_start_page_token "123456" --namespace-id [NAMESPACE_ID]
 ```
 
 Or (recommended for production):
 
 ```bash
-bunx wrangler kv key put pageToken "123456" --namespace-id <NAMESPACE_ID> --remote
+bunx wrangler kv key put google_drive_start_page_token "123456" --namespace-id [NAMESPACE_ID] --remote
 ```
 
 #### Find Your Namespace ID
@@ -171,7 +166,7 @@ curl -X POST \
   -d '{
     "id": "drive-folder-watch-001",
     "type": "web_hook",
-    "address": "https://drive-webhook.<your-subdomain>.workers.dev/webhook/drive",
+    "address": "https://drive-webhook.<your-subdomain>.workers.dev/drive/webhook",
     "expiration": EXPIRATION_TIMESTAMP
   }'
 ```
@@ -210,7 +205,7 @@ Google OAuth (one-time)
         ↓
 KV: accessToken / refreshToken / expiry
         ↓
-POST /drive/init   → store pageToken
+POST /drive/init   → store store drive start page token
         ↓
 POST /drive/watch  → create webhook channel
         ↓
@@ -269,7 +264,7 @@ https://drive-webhook.<your-subdomain>.workers.dev
 
 ### 3. Initialize Drive Changes Tracking
 
-#### Initialize pageToken
+#### Initialize Google Drive Start Page Token
 
 ```bash
 POST /drive/init
@@ -278,14 +273,14 @@ POST /drive/init
 What this does:
 
 * Fetches `startPageToken` from Google Drive
-* Stores it in KV as `pageToken`
+* Stores it in KV as `google_drive_start_page_token`
 
 Response:
 
 ```json
 {
   "message": "Drive change tracking initialized",
-  "pageToken": "123456"
+  "google_drive_start_page_token": "123456"
 }
 ```
 
@@ -299,7 +294,7 @@ POST /drive/watch
 
 What this does:
 
-* Reads `pageToken` from KV
+* Reads `google_drive_start_page_token` from KV
 * Generates a short-lived expiration (≤ 7 days)
 * Creates a Drive watch channel
 * Stores channel metadata in KV
@@ -337,7 +332,7 @@ const app = new Hono<{ Bindings: CloudflareBindings }>();
 * Webhooks are validated using `X-Goog-Channel-Token`
 * Token refresh is race-safe using KV locks
 * Watch channels must be renewed before expiration
-* Always persist the latest `pageToken`
+* Always persist the latest `google_drive_start_page_token`
 
 ## ✅ What This Setup Solves
 
