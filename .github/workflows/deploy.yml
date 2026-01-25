@@ -1,31 +1,40 @@
-name: Deploy
+name: Deploy Worker
 
 on:
   push:
     branches:
-      - fix-deployment
+      - fix-deployment # Triggers the workflow on pushes to the main branch
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    name: Deploy Worker
-
+    
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v6
-        with:
-          node-version: 24
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - name: Publish Worker
+      - name: Setup Bun runtime
+        # Uses the official action to install Bun
+        uses: oven-sh/setup-bun@v2 
+        with:
+          # Optionally specify a version: bun-version: 1.x.x
+          bun-version: latest
+
+      - name: Install dependencies with Bun
+        run: bun install
+
+      - name: Deploy Worker with Wrangler Action
         uses: cloudflare/wrangler-action@v3
         with:
-          environment: production
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          # The action automatically detects `bun.lockb` and uses bun as the package manager
+          # You can explicitly set it with: packageManager: 'bun'
           command: wrangler deploy --minify
           secrets: |
             WEBHOOK_AUTH_CLIENT_KEY
             CLOUDFLARE_API_TOKEN
         env:
-          WEBHOOK_AUTH_CLIENT_KEY: ${{ secrets.WEBHOOK_AUTH_CLIENT_KEY }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          WEBHOOK_AUTH_CLIENT_KEY: ${{ secrets.WEBHOOK_AUTH_CLIENT_KEY }}
