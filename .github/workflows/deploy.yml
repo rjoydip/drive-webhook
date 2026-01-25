@@ -12,11 +12,17 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
 
       - name: Publish Worker
         uses: cloudflare/wrangler-action@v3
         with:
+          environment: production
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: wrangler deploy --minify
           secrets: |
             WEBHOOK_AUTH_CLIENT_KEY
             CLOUDFLARE_API_TOKEN
