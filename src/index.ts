@@ -52,7 +52,7 @@ app.use("*", async (c, next) => {
 app.use(
 	"*",
 	except(
-		["/health", "/oauth/callback", "/drive/webhook"],
+		["/", "/health", "/oauth/callback", "/drive/webhook"],
 		async (c, next) =>
 			await cache({
 				cacheName: "drive-webhook-cache",
