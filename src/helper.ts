@@ -51,6 +51,100 @@ export function generateAuthUrl(options?: OAuthOptions): string {
 /*                         OAuth Token Exchange & Refresh                     */
 /* -------------------------------------------------------------------------- */
 
+const RENEW_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour before expiry
+
+export async function renewDriveWatchIfNeeded(env: Bindings) {
+	const expirationStr = await env.drive_kv.get("driveChannelExpiration");
+	if (!expirationStr) return;
+
+	const expiration = Number(expirationStr);
+	const now = Date.now();
+
+	if (expiration - now > RENEW_THRESHOLD_MS) {
+		return; // still valid
+	}
+
+	logger.info("♻️ Renewing Google Drive watch channel");
+
+	const [
+		channelId,
+		resourceId,
+		startPageToken,
+		webhookUrl,
+		webhookToken,
+		accessToken,
+	] = await Promise.all([
+		env.drive_kv.get("driveChannelId"),
+		env.drive_kv.get("driveResourceId"),
+		env.drive_kv.get("google_drive_start_page_token"),
+		env.drive_kv.get("worker_drive_webhook_url"),
+		env.drive_kv.get("driveWebhookToken"),
+		getValidAccessToken(env),
+	]);
+
+	if (
+		!channelId ||
+		!resourceId ||
+		!startPageToken ||
+		!webhookUrl ||
+		!accessToken
+	) {
+		logger.error("❌ Missing Drive watch metadata, cannot renew");
+		return;
+	}
+
+	// 1️⃣ Stop old channel
+	await fetch("https://www.googleapis.com/drive/v3/channels/stop", {
+		method: "POST",
+		headers: {
+			Authorization: `Bearer ${accessToken}`,
+			"Content-Type": "application/json",
+		},
+		body: JSON.stringify({
+			id: channelId,
+			resourceId,
+		}),
+	});
+
+	// 2️⃣ Create new channel
+	const newChannelId = crypto.randomUUID();
+	const expirationMs = Date.now() + 24 * 60 * 60 * 1000;
+
+	const res = await fetch(
+		`https://www.googleapis.com/drive/v3/changes/watch?pageToken=${startPageToken}`,
+		{
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${accessToken}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				id: newChannelId,
+				type: "web_hook",
+				address: webhookUrl,
+				expiration: expirationMs,
+				token: webhookToken,
+			}),
+		},
+	);
+
+	if (!res.ok) {
+		const error = await res.text();
+		logger.error(`❌ Failed to renew Drive watch: ${error}`);
+		return;
+	}
+
+	const data = await res.json();
+
+	await Promise.all([
+		env.drive_kv.put("driveChannelId", newChannelId),
+		env.drive_kv.put("driveResourceId", data.resourceId),
+		env.drive_kv.put("driveChannelExpiration", expirationMs.toString()),
+	]);
+
+	logger.info("✅ Drive watch renewed successfully");
+}
+
 export async function getAccessTokens(
 	authCode?: string,
 	options?: OAuthOptions,

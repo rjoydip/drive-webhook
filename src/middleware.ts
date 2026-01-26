@@ -1,4 +1,5 @@
 import type { MiddlewareHandler } from "hono";
+import { logger } from "./utils";
 
 type RateLimitOptions = {
 	windowMs: number;
@@ -56,3 +57,43 @@ export function rateLimit({
 		return await next();
 	};
 }
+
+const GOOGLE_IP_RANGES = [
+	// Common Google Workspace / APIs ranges (partial example)
+	"35.190.0.0/17",
+	"64.233.160.0/19",
+	"66.102.0.0/20",
+	"74.125.0.0/16",
+	"108.177.8.0/21",
+	"172.217.0.0/19",
+	"216.58.192.0/19",
+];
+
+const ipInCidr = (ip: string, cidr: string) => {
+	// Simple CIDR check (Cloudflare Workers compatible)
+	const [range, bits] = cidr.split("/");
+	const mask = ~(2 ** (32 - Number(bits)) - 1);
+
+	const ipToInt = (ip: string) =>
+		ip.split(".").reduce((acc, oct) => (acc << 8) + +oct, 0);
+
+	return (ipToInt(ip) & mask) === (ipToInt(range) & mask);
+};
+
+export const allowGoogleOnly: MiddlewareHandler = async (c, next) => {
+	const ip =
+		c.req.header("CF-Connecting-IP") || c.req.header("X-Forwarded-For");
+
+	if (!ip) {
+		return c.json({ message: "IP address missing" }, 403);
+	}
+
+	const allowed = GOOGLE_IP_RANGES.some((cidr) => ipInCidr(ip, cidr));
+
+	if (!allowed) {
+		logger.warn(`🚫 Blocked non-Google IP: ${ip}`);
+		return c.json({ message: "Forbidden" }, 403);
+	}
+
+	await next();
+};
