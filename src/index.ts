@@ -14,7 +14,7 @@ import {
 	getValidAccessToken,
 	validateDriveWebhook,
 } from "./helper";
-import { rateLimit } from "./middleware";
+import { allowGoogleOnly, rateLimit } from "./middleware";
 import type { Bindings, OAuthSecrets } from "./types";
 import { logger } from "./utils";
 
@@ -113,6 +113,7 @@ app.get("/wrangler/tail", async (c) => {
 
 app.post(
 	"/drive/webhook",
+	allowGoogleOnly,
 	sValidator(
 		"json",
 		object({
