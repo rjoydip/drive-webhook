@@ -52,10 +52,19 @@ export interface OAuthSecrets {
 /*                               Cloudflare Worker Bindings                   */
 /* -------------------------------------------------------------------------- */
 
-export type Bindings = {
+export type AppBindings = {
 	/** Cloudflare KV Namespace for storing Drive tokens & data */
 	drive_kv: KVNamespace;
 	/** App-specific config */
-	WEBHOOK_AUTH_CLIENT_KEY: string;
+	WEBHOOK_AUTH_KEY: string;
 	CLOUDFLARE_API_TOKEN: string;
+};
+
+export type WatchChannel = {
+	startPageToken: string;
+	accessToken: string;
+	channelId: string;
+	webhookUrl: string;
+	expiration: number;
+	webhookToken: string;
 };

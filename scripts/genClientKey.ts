@@ -10,19 +10,15 @@ function updateEnvValue(content: string, key: string, value: string): string {
 }
 
 async function main() {
-	const clientKey = Bun.randomUUIDv7();
-	logger.log("🔑 Generated Webhook AUTH Client Key:", clientKey);
+	const authKey = Bun.randomUUIDv7();
+	logger.log("🔑 Generated Webhook AUTH Key:", authKey);
 
 	// Read the .env file
 	const envFile = Bun.file("./.env");
 	const content = await envFile.text();
 
-	const updated = updateEnvValue(
-		content,
-		"WEBHOOK_AUTH_CLIENT_KEY",
-		`"${clientKey}"`,
-	);
-	logger.log("✍️ Updated .env file with new client key.");
+	const updated = updateEnvValue(content, "WEBHOOK_AUTH_KEY", `"${authKey}"`);
+	logger.log("✍️ Updated .env file with new key.");
 
 	// Write back to the file
 	await Bun.write(".env", updated);
