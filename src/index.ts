@@ -13,19 +13,19 @@ import {
 	getOrUpdateKV,
 	getValidAccessToken,
 	validateDriveWebhook,
+	watchChannel,
 } from "./helper";
 import { allowGoogleOnly, rateLimit } from "./middleware";
-import type { Bindings, OAuthSecrets } from "./types";
+import type { AppBindings, OAuthSecrets } from "./types";
 import { logger } from "./utils";
 
-const app = new Hono<{ Bindings: Bindings }>();
+const app = new Hono<{ Bindings: AppBindings }>();
 
 /* -------------------------------------------------------------------------- */
 /*                               Middleware	                                  */
 /* -------------------------------------------------------------------------- */
 app.use(csrf());
 app.use(secureHeaders());
-
 app.use("*", async (c, next) => {
 	const path = c.req.path;
 
@@ -59,7 +59,7 @@ app.use(
 				cacheControl: c.req.path === "/health" ? "max-age=5" : "max-age=600",
 			})(c, next),
 		bearerAuth({
-			verifyToken: (token, c) => token === c.env.WEBHOOK_AUTH_CLIENT_KEY,
+			verifyToken: (token, c) => token === c.env.WEBHOOK_AUTH_KEY,
 		}),
 	),
 );
@@ -221,13 +221,13 @@ app.post(
 			logger.log("👀 Creating Drive watch channel");
 
 			// 1️⃣ Read Google Drive StartPage Token & Webhook URL
-			const workerDriveWebhookUrl = await getOrUpdateKV(
+			const webhookUrl = await getOrUpdateKV(
 				c.env,
 				"worker_drive_webhook_url",
 				body.worker_drive_webhook_url,
 			);
 
-			if (workerDriveWebhookUrl?.startsWith("http://")) {
+			if (webhookUrl?.startsWith("http://")) {
 				logger.warn("⚠️ Insecure webhook URL (http). Consider using https.");
 
 				return c.json(
@@ -245,7 +245,7 @@ app.post(
 				body.google_drive_start_page_token,
 			);
 
-			if (!workerDriveWebhookUrl || !startPageToken) {
+			if (!webhookUrl || !startPageToken) {
 				return c.json(
 					{ message: "Missing webhook URL or start page token" },
 					400,
@@ -273,23 +273,14 @@ app.post(
 			const webhookToken = crypto.randomUUID(); // used for validation
 
 			// 5️⃣ Create watch channel
-			const res = await fetch(
-				`https://www.googleapis.com/drive/v3/changes/watch?pageToken=${startPageToken}`,
-				{
-					method: "POST",
-					headers: {
-						Authorization: `Bearer ${accessToken}`,
-						"Content-Type": "application/json",
-					},
-					body: JSON.stringify({
-						id: channelId,
-						type: "web_hook",
-						address: workerDriveWebhookUrl,
-						expiration,
-						token: webhookToken,
-					}),
-				},
-			);
+			const res = await watchChannel({
+				accessToken,
+				channelId,
+				expiration,
+				startPageToken,
+				webhookToken,
+				webhookUrl,
+			});
 
 			if (!res.ok) {
 				const error = await res.text();
@@ -402,6 +393,82 @@ app.post(
 			},
 			200,
 		);
+	},
+);
+
+app.post(
+	"/drive/download",
+	sValidator(
+		"json",
+		object({
+			google_access_token: message(
+				pipe(string(), trim()),
+				"Access token is required",
+			),
+			file_name: message(pipe(string(), trim()), "File name is required"),
+			google_drive_start_page_token: message(
+				pipe(string(), trim()),
+				"Start page token is required",
+			),
+		}),
+	),
+	async (c) => {
+		try {
+			const { google_access_token, file_name, google_drive_start_page_token } =
+				c.req.valid("json");
+
+			// Fetch changes
+			const changesRes = await fetch(
+				`https://www.googleapis.com/drive/v3/changes?pageToken=${google_drive_start_page_token}&fields=changes(file(id,name,mimeType))`,
+				{
+					headers: { Authorization: `Bearer ${google_access_token}` },
+				},
+			);
+
+			if (!changesRes.ok) {
+				return c.json({ message: "Failed to fetch changes" }, 500);
+			}
+
+			const { changes } = await changesRes.json();
+
+			const targetFile = changes?.find(
+				(change: any) => change.file?.name === file_name,
+			)?.file;
+
+			if (!targetFile) {
+				return c.json({ message: "File not found in recent changes" }, 404);
+			}
+
+			// Download file
+			const fileRes = await fetch(
+				`https://www.googleapis.com/drive/v3/files/${targetFile.id}?alt=media`,
+				{
+					headers: { Authorization: `Bearer ${google_access_token}` },
+				},
+			);
+
+			if (!fileRes.ok) {
+				return c.json({ message: "Failed to download file" }, 500);
+			}
+
+			const fileBlob = await fileRes.blob();
+
+			return new Response(fileBlob, {
+				headers: {
+					"Content-Type": targetFile.mimeType || "application/octet-stream",
+					"Content-Disposition": `attachment; filename="${targetFile.name}"`,
+				},
+			});
+		} catch (error: unknown) {
+			logger.error(error);
+			return c.json(
+				{
+					message: "Download failed",
+					error: error instanceof Error ? error.message : "Unknown error",
+				},
+				500,
+			);
+		}
 	},
 );
 

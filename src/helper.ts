@@ -1,5 +1,10 @@
 import { google } from "googleapis";
-import type { Bindings, OAuthSecrets, OAuthToken } from "./types";
+import type {
+	AppBindings,
+	OAuthSecrets,
+	OAuthToken,
+	WatchChannel,
+} from "./types";
 import { logger } from "./utils";
 
 /* -------------------------------------------------------------------------- */
@@ -11,7 +16,7 @@ function sleep(ms: number) {
 }
 
 export async function getOrUpdateKV(
-	kv: Bindings,
+	kv: AppBindings,
 	key: string,
 	value?: string | null,
 ): Promise<string | null> {
@@ -47,13 +52,34 @@ export function generateAuthUrl(options?: OAuthOptions): string {
 	});
 }
 
+export async function watchChannel(options: WatchChannel) {
+	const res = await fetch(
+		`https://www.googleapis.com/drive/v3/changes/watch?pageToken=${options.startPageToken}`,
+		{
+			method: "POST",
+			headers: {
+				Authorization: `Bearer ${options.accessToken}`,
+				"Content-Type": "application/json",
+			},
+			body: JSON.stringify({
+				id: options.channelId,
+				type: "web_hook",
+				address: options.webhookUrl,
+				expiration: options?.expiration,
+				token: options.webhookToken,
+			}),
+		},
+	);
+	return res;
+}
+
 /* -------------------------------------------------------------------------- */
 /*                         OAuth Token Exchange & Refresh                     */
 /* -------------------------------------------------------------------------- */
 
 const RENEW_THRESHOLD_MS = 60 * 60 * 1000; // 1 hour before expiry
 
-export async function renewDriveWatchIfNeeded(env: Bindings) {
+export async function renewDriveWatchIfNeeded(env: AppBindings) {
 	const expirationStr = await env.drive_kv.get("driveChannelExpiration");
 	if (!expirationStr) return;
 
@@ -106,27 +132,26 @@ export async function renewDriveWatchIfNeeded(env: Bindings) {
 		}),
 	});
 
+	if (!webhookToken) {
+		throw Error("Missing webhook token");
+	}
+
+	if (!webhookUrl) {
+		throw Error("Missing Webhook URL");
+	}
+
 	// 2️⃣ Create new channel
 	const newChannelId = crypto.randomUUID();
 	const expirationMs = Date.now() + 24 * 60 * 60 * 1000;
 
-	const res = await fetch(
-		`https://www.googleapis.com/drive/v3/changes/watch?pageToken=${startPageToken}`,
-		{
-			method: "POST",
-			headers: {
-				Authorization: `Bearer ${accessToken}`,
-				"Content-Type": "application/json",
-			},
-			body: JSON.stringify({
-				id: newChannelId,
-				type: "web_hook",
-				address: webhookUrl,
-				expiration: expirationMs,
-				token: webhookToken,
-			}),
-		},
-	);
+	const res = await watchChannel({
+		accessToken,
+		channelId,
+		expiration,
+		startPageToken,
+		webhookToken,
+		webhookUrl,
+	});
 
 	if (!res.ok) {
 		const error = await res.text();
@@ -162,7 +187,7 @@ export async function getAccessTokens(
 	return tokens;
 }
 
-async function refreshAccessToken(env: Bindings) {
+async function refreshAccessToken(env: AppBindings) {
 	const refreshToken = await env.drive_kv.get("refreshToken");
 	const clientId = await env.drive_kv.get("google_client_id");
 	const clientSecret = await env.drive_kv.get("google_client_secret");
@@ -208,7 +233,7 @@ const LOCK_KEY = "accessTokenRefreshLock";
 const LOCK_TTL_MS = 30_000;
 const EARLY_REFRESH_MS = 60_000;
 
-export async function getValidAccessToken(env: Bindings): Promise<string> {
+export async function getValidAccessToken(env: AppBindings): Promise<string> {
 	const token = await env.drive_kv.get("accessToken");
 	const expiry = Number((await env.drive_kv.get("accessTokenExpiry")) ?? 0);
 
@@ -282,7 +307,7 @@ interface DriveChange {
 }
 
 export async function fetchAndLogChanges(
-	env: Bindings,
+	env: AppBindings,
 	accessToken: string,
 	googleDriveFolderID: string,
 	googleDriveStartPageToken?: string,
