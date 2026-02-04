@@ -163,20 +163,20 @@ describe("Drive Webhook API", () => {
 
 	describe("GET /oauth/callback", () => {
 		test("should store OAuth code successfully", async () => {
-			const authCode = "test_auth_code_123";
+			const gAuthCode = "test_auth_code_123";
 			const req = new Request(
-				`http://localhost/oauth/callback?code=${authCode}`,
+				`http://localhost/oauth/callback?code=${gAuthCode}`,
 			);
 
 			const res = await app.fetch(req, mockEnv);
 			const data = await res.json();
 
 			expect(res.status).toBe(200);
-			expect(data.google_auth_code).toBe(authCode);
+			expect(data.auth_code).toBe(gAuthCode);
 			expect(data.message).toContain("stored");
 
-			const storedCode = await mockEnv.drive_kv.get("g_auth_code");
-			expect(storedCode).toBe(authCode);
+			const storedGAuthCode = await mockEnv.drive_kv.get("auth_code");
+			expect(storedGAuthCode).toBe(gAuthCode);
 		});
 
 		test("should reject request without code parameter", async () => {
@@ -197,7 +197,10 @@ describe("Drive Webhook API", () => {
 					Authorization: "Bearer test_auth_key",
 				},
 				body: JSON.stringify({
-					google_auth_code: "test_auth_code",
+					auth_code: "test_auth_code",
+					client_id: "test_client_id",
+					client_secret: "test_client_secret",
+					redirect_uris: ["http://localhost/oauth/callback"],
 				}),
 			});
 
@@ -233,7 +236,7 @@ describe("Drive Webhook API", () => {
 					Authorization: "Bearer test_auth_key",
 				},
 				body: JSON.stringify({
-					google_auth_code: "   ",
+					auth_code: "   ",
 				}),
 			});
 
@@ -261,7 +264,7 @@ describe("Drive Webhook API", () => {
 					Authorization: "Bearer test_auth_key",
 				},
 				body: JSON.stringify({
-					google_access_token: "test_access_token",
+					access_token: "test_access_token",
 				}),
 			});
 
@@ -269,7 +272,7 @@ describe("Drive Webhook API", () => {
 			const data = await res.json();
 
 			expect(res.status).toBe(200);
-			expect(data.google_drive_start_page_token).toBe("mock_token_123");
+			expect(data.drive_start_page_token).toBe("mock_token_123");
 			expect(data.message).toContain("initialized");
 		});
 
@@ -298,8 +301,8 @@ describe("Drive Webhook API", () => {
 					Authorization: "Bearer test_auth_key",
 				},
 				body: JSON.stringify({
-					google_access_token: "test_access_token",
-					google_drive_start_page_token: "test_start_token",
+					access_token: "test_access_token",
+					drive_start_page_token: "test_start_token",
 					worker_drive_webhook_url: "https://example.com/webhook",
 				}),
 			});
@@ -322,8 +325,8 @@ describe("Drive Webhook API", () => {
 					Authorization: "Bearer test_auth_key",
 				},
 				body: JSON.stringify({
-					google_access_token: "test_access_token",
-					google_drive_start_page_token: "test_start_token",
+					access_token: "test_access_token",
+					drive_start_page_token: "test_start_token",
 					worker_drive_webhook_url: "http://example.com/webhook",
 				}),
 			});
@@ -343,7 +346,7 @@ describe("Drive Webhook API", () => {
 					Authorization: "Bearer test_auth_key",
 				},
 				body: JSON.stringify({
-					google_access_token: "test_access_token",
+					access_token: "test_access_token",
 				}),
 			});
 
@@ -364,9 +367,9 @@ describe("Drive Webhook API", () => {
 					"CF-Connecting-IP": "74.125.0.1", // Valid Google IP
 				},
 				body: JSON.stringify({
-					google_drive_folder_id: "test_folder_id",
-					google_access_token: "test_access_token",
-					google_drive_start_page_token: "test_start_token",
+					drive_folder_id: "test_folder_id",
+					access_token: "test_access_token",
+					drive_start_page_token: "test_start_token",
 				}),
 			});
 
@@ -391,9 +394,9 @@ describe("Drive Webhook API", () => {
 					"CF-Connecting-IP": "74.125.0.1", // Valid Google IP
 				},
 				body: JSON.stringify({
-					google_drive_folder_id: "test_folder_id",
-					google_access_token: "test_access_token",
-					google_drive_start_page_token: "test_start_token",
+					drive_folder_id: "test_folder_id",
+					access_token: "test_access_token",
+					drive_start_page_token: "test_start_token",
 				}),
 			});
 
@@ -416,9 +419,9 @@ describe("Drive Webhook API", () => {
 					Authorization: "Bearer test_auth_key",
 				},
 				body: JSON.stringify({
-					google_drive_folder_id: "test_folder_id",
-					google_access_token: "test_access_token",
-					google_drive_start_page_token: "test_start_token",
+					drive_folder_id: "test_folder_id",
+					access_token: "test_access_token",
+					drive_start_page_token: "test_start_token",
 				}),
 			});
 
@@ -463,9 +466,9 @@ describe("Drive Webhook API", () => {
 					Authorization: "Bearer test_auth_key",
 				},
 				body: JSON.stringify({
-					google_access_token: "test_token",
+					access_token: "test_token",
 					file_name: "test.pdf",
-					google_drive_start_page_token: "token123",
+					drive_start_page_token: "token123",
 				}),
 			});
 
@@ -490,9 +493,9 @@ describe("Drive Webhook API", () => {
 					Authorization: "Bearer test_auth_key",
 				},
 				body: JSON.stringify({
-					google_access_token: "test_token",
+					access_token: "test_token",
 					file_name: "nonexistent.pdf",
-					google_drive_start_page_token: "token123",
+					drive_start_page_token: "token123",
 				}),
 			});
 
@@ -509,7 +512,7 @@ describe("Drive Webhook API", () => {
 					Authorization: "Bearer test_auth_key",
 				},
 				body: JSON.stringify({
-					google_access_token: "test_token",
+					access_token: "test_token",
 				}),
 			});
 

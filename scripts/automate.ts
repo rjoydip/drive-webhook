@@ -3,9 +3,16 @@ import { join } from "node:path";
 import { parseEnv } from "node:util";
 import { $ } from "bun";
 import { getAccessTokens } from "../src/helper";
-import type { KVNamespaceInfo, OAuthSecrets } from "../src/types";
+import type { KVNamespaceInfo } from "../src/types";
 import { KV_NS, logger } from "../src/utils";
-import { interactive, textCyan, textGreen, textWhite } from "./_utils";
+import {
+	interactive,
+	loadOAuthSecrets,
+	SECRET_PATH,
+	textCyan,
+	textGreen,
+	textWhite,
+} from "./_utils";
 
 /* -------------------------------------------------------------------------- */
 /*                               KV Utilities                                 */
@@ -48,10 +55,6 @@ function normalizeEnvVars(env: Dict<string>): Record<string, string> {
 			.filter(([, value]) => typeof value === "string")
 			.map(([key, value]) => [key, value ?? ""]),
 	);
-}
-
-async function loadOAuthSecrets(secretPath: string): Promise<OAuthSecrets> {
-	return Bun.file(secretPath).json();
 }
 
 async function writeTempEnvFile(envVars: Record<string, string>) {
@@ -99,7 +102,6 @@ async function getStartPageToken(accessToken: string): Promise<string> {
 async function main() {
 	const TOTAL_STEPS = 10;
 	const ENV_PATH = "./.env";
-	const SECRET_PATH = "./client_secret.json";
 
 	interactive.await(`[1/${TOTAL_STEPS}] - List KV namespaces`);
 
@@ -111,12 +113,17 @@ async function main() {
 	const normalizedEnvVars = normalizeEnvVars(rawEnvVars);
 
 	const {
-		web: { client_id, client_secret },
+		web: { client_id, client_secret, redirect_uris },
 	} = await loadOAuthSecrets(SECRET_PATH);
 
 	interactive.await(`[4/${TOTAL_STEPS}] - Exchange OAuth code for tokens`);
 
 	const { refresh_token, access_token } = await getAccessTokens(
+		{
+			client_id,
+			client_secret,
+			redirect_uris,
+		},
 		normalizedEnvVars.GOOGLE_AUTH_CODE,
 	);
 

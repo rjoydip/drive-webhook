@@ -1,8 +1,12 @@
 import { getAccessTokens } from "../src/helper";
 import { logger } from "../src/utils";
+import { loadOAuthSecrets, SECRET_PATH } from "./_utils";
 
 async function main() {
 	const authCode = process.argv[2] ?? process.env.AUTH_CODE;
+	const {
+		web: { client_id, client_secret, redirect_uris },
+	} = await loadOAuthSecrets(SECRET_PATH);
 
 	if (!authCode) {
 		throw new Error(
@@ -10,7 +14,14 @@ async function main() {
 		);
 	}
 
-	const tokens = await getAccessTokens(authCode);
+	const tokens = await getAccessTokens(
+		{
+			client_id,
+			client_secret,
+			redirect_uris,
+		},
+		authCode,
+	);
 	logger.log("✅ Generated OAuth Tokens:", tokens);
 }
 

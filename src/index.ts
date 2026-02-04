@@ -1,5 +1,6 @@
+import type { ScheduledController } from "@cloudflare/workers-types";
 import { sValidator } from "@hono/standard-validator";
-import { Hono } from "hono";
+import { type ExecutionContext, Hono } from "hono";
 import { bearerAuth } from "hono/bearer-auth";
 import { cache } from "hono/cache";
 import { except } from "hono/combine";
@@ -12,6 +13,7 @@ import {
 	getAccessTokens,
 	getOrUpdateKV,
 	getValidAccessToken,
+	renewDriveWatchIfNeeded,
 	validateDriveWebhook,
 	watchChannel,
 } from "./helper";
@@ -117,15 +119,15 @@ app.post(
 	sValidator(
 		"json",
 		object({
-			google_drive_folder_id: message(
+			drive_folder_id: message(
 				pipe(string(), trim()),
 				"Google Drive Folder ID is required",
 			),
-			google_access_token: message(
+			access_token: message(
 				pipe(string(), trim()),
 				"Google Access Token is required",
 			),
-			google_drive_start_page_token: message(
+			drive_start_page_token: message(
 				pipe(string(), trim()),
 				"Google Drive Start Page Token is required",
 			),
@@ -153,20 +155,20 @@ app.post(
 			// 🔁 KV fallback/update
 			const googleDriveFolderID = await getOrUpdateKV(
 				c.env,
-				"google_drive_folder_id",
-				c.req.valid("json").google_drive_folder_id,
+				"drive_folder_id",
+				c.req.valid("json").drive_folder_id,
 			);
 
 			const googleDriveStartPageToken = await getOrUpdateKV(
 				c.env,
-				"google_drive_start_page_token",
-				c.req.valid("json").google_drive_start_page_token,
+				"drive_start_page_token",
+				c.req.valid("json").drive_start_page_token,
 			);
 
 			const accessToken = await getOrUpdateKV(
 				c.env,
 				"accessToken",
-				c.req.valid("json").google_access_token,
+				c.req.valid("json").access_token,
 			);
 
 			if (!accessToken || !googleDriveFolderID || !googleDriveStartPageToken) {
@@ -201,11 +203,8 @@ app.post(
 	sValidator(
 		"json",
 		object({
-			google_access_token: message(
-				pipe(string(), trim()),
-				"Access token is required",
-			),
-			google_drive_start_page_token: message(
+			access_token: message(pipe(string(), trim()), "Access token is required"),
+			drive_start_page_token: message(
 				pipe(string(), trim()),
 				"Start page token is required",
 			),
@@ -241,8 +240,8 @@ app.post(
 
 			const startPageToken = await getOrUpdateKV(
 				c.env,
-				"google_drive_start_page_token",
-				body.google_drive_start_page_token,
+				"drive_start_page_token",
+				body.drive_start_page_token,
 			);
 
 			if (!webhookUrl || !startPageToken) {
@@ -257,7 +256,7 @@ app.post(
 			const expiration = Date.now() + EXPIRATION_MS;
 
 			// 3️⃣ Get valid access token
-			let accessToken = c.req.valid("json").google_access_token;
+			let accessToken = c.req.valid("json").access_token;
 
 			if (!accessToken) {
 				accessToken = await getValidAccessToken(c.env);
@@ -331,17 +330,14 @@ app.post(
 	sValidator(
 		"json",
 		object({
-			google_access_token: message(
-				pipe(string(), trim()),
-				"Access token is required",
-			),
+			access_token: message(pipe(string(), trim()), "Access token is required"),
 		}),
 	),
 	async (c) => {
 		const accessToken = await getOrUpdateKV(
 			c.env,
 			"accessToken",
-			c.req.valid("json").google_access_token,
+			c.req.valid("json").access_token,
 		);
 
 		if (!accessToken) {
@@ -381,7 +377,7 @@ app.post(
 		}
 
 		// 3️⃣ Store in KV (remote in prod automatically)
-		await c.env.drive_kv.put("google_drive_start_page_token", startPageToken);
+		await c.env.drive_kv.put("drive_start_page_token", startPageToken);
 
 		logger.log(`✅ startPageToken stored: ${startPageToken}`);
 
@@ -389,7 +385,7 @@ app.post(
 		return c.json(
 			{
 				message: "Drive change tracking initialized",
-				google_drive_start_page_token: startPageToken,
+				drive_start_page_token: startPageToken,
 			},
 			200,
 		);
@@ -401,12 +397,9 @@ app.post(
 	sValidator(
 		"json",
 		object({
-			google_access_token: message(
-				pipe(string(), trim()),
-				"Access token is required",
-			),
+			access_token: message(pipe(string(), trim()), "Access token is required"),
 			file_name: message(pipe(string(), trim()), "File name is required"),
-			google_drive_start_page_token: message(
+			drive_start_page_token: message(
 				pipe(string(), trim()),
 				"Start page token is required",
 			),
@@ -414,14 +407,14 @@ app.post(
 	),
 	async (c) => {
 		try {
-			const { google_access_token, file_name, google_drive_start_page_token } =
+			const { access_token, file_name, drive_start_page_token } =
 				c.req.valid("json");
 
 			// Fetch changes
 			const changesRes = await fetch(
-				`https://www.googleapis.com/drive/v3/changes?pageToken=${google_drive_start_page_token}&fields=changes(file(id,name,mimeType))`,
+				`https://www.googleapis.com/drive/v3/changes?pageToken=${drive_start_page_token}&fields=changes(file(id,name,mimeType))`,
 				{
-					headers: { Authorization: `Bearer ${google_access_token}` },
+					headers: { Authorization: `Bearer ${access_token}` },
 				},
 			);
 
@@ -443,7 +436,7 @@ app.post(
 			const fileRes = await fetch(
 				`https://www.googleapis.com/drive/v3/files/${targetFile.id}?alt=media`,
 				{
-					headers: { Authorization: `Bearer ${google_access_token}` },
+					headers: { Authorization: `Bearer ${access_token}` },
 				},
 			);
 
@@ -484,24 +477,70 @@ app.post(
 	sValidator(
 		"json",
 		object({
-			google_auth_code: message(
-				pipe(string(), trim(), nonEmpty("Google Auth Code shouldn't be empty")),
-				"OAuth2 code is required",
+			auth_code: message(
+				pipe(string(), trim()),
+				"Google OAuth2 code is required",
+			),
+			client_id: message(
+				pipe(string(), trim()),
+				"Google Client ID is required",
+			),
+			client_secret: message(
+				pipe(string(), trim()),
+				"Google Client Secret is required",
+			),
+			redirect_uris: message(
+				pipe(array(pipe(string(), trim()))),
+				"Redirect URIs must be an array of strings",
 			),
 		}),
 	),
 	async (c) => {
-		const authCode = c.req.valid("json").google_auth_code;
+		const bodyData = c.req.valid("json");
 
-		if (!authCode) {
+		// Prioritize request body params, fallback to KV
+		const client_id = bodyData.client_id;
+		const client_secret = bodyData.client_secret;
+		const redirect_uris = bodyData.redirect_uris;
+		const auth_code = bodyData.auth_code;
+
+		if (!auth_code) {
 			logger.error("❌ Missing Google OAuth code");
 			return c.json({ message: "Missing Google OAuth code" }, 400);
 		}
 
+		if (!client_id) {
+			throw new Error("🚨 No client ID available");
+		}
+
+		if (!client_secret) {
+			throw new Error("🚨 No client secret available");
+		}
+
+		if (!redirect_uris) {
+			throw new Error("🚨 No redirect URIs available");
+		}
+
 		try {
-			const token = await getAccessTokens(authCode);
+			// Parse redirect_uris if it's a string from KV
+			const parsedRedirectUris =
+				typeof redirect_uris === "string"
+					? JSON.parse(redirect_uris)
+					: redirect_uris;
+
+			const token = await getAccessTokens(
+				{
+					client_id,
+					client_secret,
+					redirect_uris: parsedRedirectUris,
+				},
+				auth_code,
+			);
 
 			await Promise.all([
+				c.env.drive_kv.put("client_id", client_id),
+				c.env.drive_kv.put("client_secret", client_secret),
+				c.env.drive_kv.put("redirect_uris", JSON.stringify(redirect_uris)),
 				c.env.drive_kv.put("accessToken", token.access_token ?? ""),
 				c.env.drive_kv.put(
 					"accessTokenExpiry",
@@ -547,19 +586,19 @@ app.get(
 	),
 	async (c) => {
 		const query = c.req.valid("query");
-		const authCode = query.code;
+		const gAuthCode = query.code;
 
-		if (!authCode) {
+		if (!gAuthCode) {
 			return c.json({ message: "❌ No OAuth2 code found in request" }, 400);
 		}
 
 		logger.log(`🔑 OAuth2 code received`);
-		await c.env.drive_kv.put("g_auth_code", authCode);
+		await c.env.drive_kv.put("auth_code", gAuthCode);
 
 		return c.json(
 			{
-				message: "✅ OAuth2 code stored. You can close this tab.",
-				google_auth_code: authCode,
+				message: "✅ Google OAuth2 code stored. You can close this tab.",
+				auth_code: gAuthCode,
 			},
 			200,
 		);
@@ -567,7 +606,7 @@ app.get(
 );
 
 /**
- * Generates Google OAuth consent URL
+ * Generates/Register Google OAuth consent URL
  */
 app.post(
 	"/oauth/url",
@@ -575,11 +614,15 @@ app.post(
 		"json",
 		object({
 			client_id: message(
-				pipe(string(), trim(), nonEmpty("Client ID shouldn't be empty")),
+				pipe(string(), trim(), nonEmpty("Google Client ID shouldn't be empty")),
 				"Client ID is required",
 			),
 			client_secret: message(
-				pipe(string(), trim(), nonEmpty("Client Secret shouldn't be empty")),
+				pipe(
+					string(),
+					trim(),
+					nonEmpty("Google Client Secret shouldn't be empty"),
+				),
 				"Client Secret is required",
 			),
 			redirect_uris: message(
@@ -601,7 +644,7 @@ app.post(
 			return c.json({ message: "Failed to generate OAuth2 URL" }, 500);
 		}
 
-		logger.log("✅ OAuth2 URL generated & stored");
+		logger.log("✅ OAuth2 URL generated");
 
 		return c.json(
 			{
@@ -628,4 +671,24 @@ app.get("/health", (c) => {
 	return c.json({ status: "OK", timestamp: Date.now() }, 200);
 });
 
-export default app;
+// Define the scheduled function
+async function scheduled(
+	controller: ScheduledController,
+	env: AppBindings,
+	ctx: ExecutionContext,
+): Promise<void> {
+	// This code runs when the cron trigger fires
+	logger.log(
+		`[Cron Trigger]: Job triggered by schedule: ${controller.cron} & ${controller.scheduledTime}`,
+	);
+
+	// You can access environment variables here
+	logger.log("Accessing secret in cron handler:", env.CLOUDFLARE_API_TOKEN);
+
+	await ctx.waitUntil(renewDriveWatchIfNeeded(env));
+}
+
+export default {
+	fetch: app.fetch, // Hono handles all incoming HTTP requests
+	scheduled, // This handles cron events
+};

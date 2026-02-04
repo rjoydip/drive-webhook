@@ -98,18 +98,21 @@ bunx wrangler deploy
 
 ### KV Keys Used
 
-| Key                             | Purpose                     |
-| ------------------------------- | --------------------------- |
-| `accessToken`                   | Google OAuth access token   |
-| `refreshToken`                  | Google OAuth refresh token  |
-| `accessTokenExpiry`             | Token expiry timestamp      |
-| `google_drive_start_page_token` | Drive change tracking token |
-| `google_drive_folder_id`        | Folder being tracked        |
-| `worker_drive_webhook_url`      | Webhook endpoint            |
-| `driveWebhookToken`             | Webhook validation token    |
-| `driveChannelId`                | Drive watch channel ID      |
-| `driveResourceId`               | Drive resource ID           |
-| `driveChannelExpiration`        | Channel expiry time         |
+| Key                             | Purpose                       |
+| ------------------------------- | ----------------------------- |
+| `accessToken`                   | Google OAuth access token     |
+| `refreshToken`                  | Google OAuth refresh token    |
+| `accessTokenExpiry`             | Token expiry timestamp        |
+| `drive_start_page_token`        | Drive change tracking token   |
+| `drive_folder_id`               | Folder being tracked          |
+| `client_id`                     | Google Client ID              |
+| `client_secret`                 | Google Client Secret          |
+| `auth_code`                     | Google Auth Code              |
+| `worker_drive_webhook_url`      | Webhook endpoint              |
+| `driveWebhookToken`             | Webhook validation token      |
+| `driveChannelId`                | Drive watch channel ID        |
+| `driveResourceId`               | Drive resource ID             |
+| `driveChannelExpiration`        | Channel expiry time           |
 
 ### Create KV Namespace
 
@@ -259,7 +262,7 @@ Handles Google OAuth redirect and stores authorization code.
 ```json
 {
   "message": "✅ OAuth2 code stored. You can close this tab.",
-  "google_auth_code": "string"
+  "auth_code": "string"
 }
 ```
 
@@ -275,7 +278,10 @@ Exchanges authorization code for access and refresh tokens.
 
 ```json
 {
-  "google_auth_code": "string"
+  "auth_code": "string",
+  "client_id": "string",
+  "client_secret": "string",
+  "redirect_uris": "string",
 }
 ```
 
@@ -306,7 +312,7 @@ Fetches the start page token required for Drive change tracking.
 
 ```json
 {
-  "google_access_token": "string"
+  "access_token": "string"
 }
 ```
 
@@ -315,7 +321,7 @@ Fetches the start page token required for Drive change tracking.
 ```json
 {
   "message": "Drive change tracking initialized",
-  "google_drive_start_page_token": "string"
+  "drive_start_page_token": "string"
 }
 ```
 
@@ -333,8 +339,8 @@ Sets up a Google Drive watch channel for receiving change notifications.
 
 ```json
 {
-  "google_access_token": "string",
-  "google_drive_start_page_token": "string",
+  "access_token": "string",
+  "drive_start_page_token": "string",
   "worker_drive_webhook_url": "https://example.com/drive/webhook"
 }
 ```
@@ -378,9 +384,9 @@ Receives and processes Google Drive change notifications.
 
 ```json
 {
-  "google_drive_folder_id": "string",
-  "google_access_token": "string",
-  "google_drive_start_page_token": "string"
+  "drive_folder_id": "string",
+  "access_token": "string",
+  "drive_start_page_token": "string"
 }
 ```
 
@@ -431,9 +437,9 @@ Downloads a specific file from recent Drive changes.
 
 ```json
 {
-  "google_access_token": "string",
+  "access_token": "string",
   "file_name": "document.pdf",
-  "google_drive_start_page_token": "string"
+  "drive_start_page_token": "string"
 }
 ```
 
@@ -617,17 +623,17 @@ Configure these variables before testing:
 |----------|-------------|---------|
 | `baseUrl` | Your Worker URL | `https://your-worker.workers.dev` |
 | `WEBHOOK_AUTH_KEY` | Auth token for API | `your_secret_key` |
-| `google_client_id` | Google OAuth Client ID | `123456.apps.googleusercontent.com` |
-| `google_client_secret` | Google OAuth Client Secret | `GOCSPX-xxxxx` |
-| `google_drive_folder_id` | Target Drive folder ID | `1A2B3C4D5E6F` |
+| `client_id` | Google OAuth Client ID | `123456.apps.googleusercontent.com` |
+| `client_secret` | Google OAuth Client Secret | `GOCSPX-xxxxx` |
+| `drive_folder_id` | Target Drive folder ID | `1A2B3C4D5E6F` |
 | `worker_drive_webhook_url` | Webhook endpoint URL | `https://your-worker.workers.dev/drive/webhook` |
 
 **Auto-populated variables** (filled by test scripts):
 
-- `google_auth_code`
-- `google_access_token`
-- `google_refresh_token`
-- `google_drive_start_page_token`
+- `auth_code`
+- `access_token`
+- `refresh_token`
+- `drive_start_page_token`
 
 #### Collection Structure
 
@@ -685,8 +691,8 @@ Authorization: Bearer {{WEBHOOK_AUTH_KEY}}
 Content-Type: application/json
 
 {
-  "client_id": "{{google_client_id}}",
-  "client_secret": "{{google_client_secret}}",
+  "client_id": "{{client_id}}",
+  "client_secret": "{{client_secret}}",
   "redirect_uris": ["{{baseUrl}}/oauth/callback"]
 }
 ```
@@ -699,8 +705,8 @@ Authorization: Bearer {{WEBHOOK_AUTH_KEY}}
 Content-Type: application/json
 
 {
-  "google_access_token": "{{google_access_token}}",
-  "google_drive_start_page_token": "{{google_drive_start_page_token}}",
+  "access_token": "{{access_token}}",
+  "drive_start_page_token": "{{drive_start_page_token}}",
   "worker_drive_webhook_url": "{{worker_drive_webhook_url}}"
 }
 ```
@@ -713,8 +719,8 @@ The collection includes scripts that automatically save response data:
 // After token exchange
 if (pm.response.code === 200) {
     const response = pm.response.json();
-    pm.collectionVariables.set('google_access_token', response.accessToken);
-    pm.collectionVariables.set('google_refresh_token', response.refreshToken);
+    pm.collectionVariables.set('access_token', response.accessToken);
+    pm.collectionVariables.set('refresh_token', response.refreshToken);
     console.log('✅ Tokens saved to collection variables');
 }
 ```
@@ -792,7 +798,7 @@ curl -X POST https://your-worker.workers.dev/oauth/exchange \
   -H "Authorization: Bearer YOUR_AUTH_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "google_auth_code": "YOUR_AUTH_CODE"
+    "auth_code": "YOUR_AUTH_CODE"
   }'
 ```
 
