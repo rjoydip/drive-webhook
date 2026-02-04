@@ -33,7 +33,7 @@ export async function getOrUpdateKV(
 
 type OAuthOptions = OAuthSecrets["web"];
 
-export function getOAuth2Client(options?: OAuthOptions) {
+function _getOAuth2Client(options?: OAuthOptions) {
 	return new google.auth.OAuth2({
 		client_id: options?.client_id,
 		client_secret: options?.client_secret,
@@ -43,7 +43,7 @@ export function getOAuth2Client(options?: OAuthOptions) {
 }
 
 export function generateAuthUrl(options?: OAuthOptions): string {
-	const oauth2Client = getOAuth2Client(options);
+	const oauth2Client = _getOAuth2Client(options);
 
 	return oauth2Client.generateAuthUrl({
 		access_type: "offline", // required for refresh token
@@ -90,7 +90,7 @@ export async function renewDriveWatchIfNeeded(env: AppBindings) {
 		return; // still valid
 	}
 
-	logger.info("♻️ Renewing Google Drive watch channel");
+	logger.log("♻️ Renewing Google Drive watch channel");
 
 	const [
 		channelId,
@@ -115,7 +115,7 @@ export async function renewDriveWatchIfNeeded(env: AppBindings) {
 		!webhookUrl ||
 		!accessToken
 	) {
-		logger.error("❌ Missing Drive watch metadata, cannot renew");
+		logger.error("🚨 Missing Drive watch metadata, cannot renew");
 		return;
 	}
 
@@ -155,9 +155,13 @@ export async function renewDriveWatchIfNeeded(env: AppBindings) {
 
 	if (!res.ok) {
 		const error = await res.text();
-		logger.error(`❌ Failed to renew Drive watch: ${error}`);
+		logger.error(`🚨 Failed to renew Drive watch: ${error}`);
 		return;
+	} else {
+		logger.success(`Watched channel: ${channelId}`);
 	}
+
+	console.log(">>>> 5");
 
 	const data = await res.json();
 
@@ -171,17 +175,15 @@ export async function renewDriveWatchIfNeeded(env: AppBindings) {
 }
 
 export async function getAccessTokens(
-	authCode?: string,
-	options?: OAuthOptions,
+	options: OAuthOptions,
+	authCode: string,
 ): Promise<OAuthToken> {
-	const oauth2Client = getOAuth2Client(options);
-	const code = authCode ?? Bun.env.GOOGLE_AUTH_CODE;
-
-	if (!code) {
-		throw new Error("❌ No authorization code provided");
+	if (!authCode) {
+		throw new Error("🚨 No authorization code provided");
 	}
 
-	const { tokens } = await oauth2Client.getToken(code);
+	const oauth2Client = _getOAuth2Client(options);
+	const { tokens } = await oauth2Client.getToken(authCode);
 	oauth2Client.setCredentials(tokens);
 
 	return tokens;
@@ -193,15 +195,15 @@ async function refreshAccessToken(env: AppBindings) {
 	const clientSecret = await env.drive_kv.get("google_client_secret");
 
 	if (!refreshToken) {
-		throw new Error("❌ No refresh token available");
+		throw new Error("🚨 No refresh token available");
 	}
 
 	if (!clientId) {
-		throw new Error("❌ No client ID available");
+		throw new Error("🚨 No client ID available");
 	}
 
 	if (!clientSecret) {
-		throw new Error("❌ No client secret available");
+		throw new Error("🚨 No client secret available");
 	}
 
 	const response = await fetch("https://oauth2.googleapis.com/token", {
@@ -216,7 +218,7 @@ async function refreshAccessToken(env: AppBindings) {
 	});
 
 	if (!response.ok) {
-		throw new Error("❌ Failed to refresh access token");
+		throw new Error("🚨 Failed to refresh access token");
 	}
 
 	return response.json() as Promise<{
@@ -230,7 +232,7 @@ async function refreshAccessToken(env: AppBindings) {
 /* -------------------------------------------------------------------------- */
 
 const LOCK_KEY = "accessTokenRefreshLock";
-const LOCK_TTL_MS = 30_000;
+const LOCK_TTL_MS = 60_000;
 const EARLY_REFRESH_MS = 60_000;
 
 export async function getValidAccessToken(env: AppBindings): Promise<string> {
@@ -248,7 +250,7 @@ export async function getValidAccessToken(env: AppBindings): Promise<string> {
 	// Another request is already refreshing
 	if (lockTimestamp && now - Number(lockTimestamp) < LOCK_TTL_MS) {
 		logger.log("⏳ Token refresh in progress, waiting...");
-		await sleep(800);
+		await sleep(500);
 		return getValidAccessToken(env);
 	}
 
@@ -331,7 +333,7 @@ export async function fetchAndLogChanges(
 	);
 
 	if (!response.ok) {
-		logger.error("❌ Drive API error", await response.text());
+		logger.error("🚨 Drive API error", await response.text());
 		return "Drive API error";
 	}
 

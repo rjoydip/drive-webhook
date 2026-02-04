@@ -1,0 +1,152 @@
+### Drive Webhook API - REST Client
+### Complete API endpoints for Google Drive Webhook integration
+
+### =============================================================================
+### VARIABLES - Update these with your actual values
+### =============================================================================
+
+@baseUrl = http://localhost:8787
+@authToken = your_auth_key_here
+@googleClientId = your_google_client_id
+@googleClientSecret = your_google_client_secret
+@googleAuthCode = 
+@googleAccessToken = 
+@googleRefreshToken = 
+@googleDriveStartPageToken = 
+@googleDriveFolderId = 
+@workerDriveWebhookUrl = http://localhost:8787/drive/webhook
+
+
+### =============================================================================
+### HEALTH & STATUS
+### =============================================================================
+
+### Root Endpoint
+GET {{baseUrl}}/
+Accept: application/json
+
+### Health Check
+GET {{baseUrl}}/health
+Accept: application/json
+
+
+### =============================================================================
+### OAUTH FLOW
+### =============================================================================
+
+### 1. Generate OAuth URL
+POST {{baseUrl}}/oauth/url
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "google_client_id": "{{googleClientId}}",
+  "google_client_secret": "{{googleClientSecret}}",
+  "redirect_uris": [
+    "{{baseUrl}}/oauth/callback"
+  ]
+}
+
+### 2. OAuth Callback (Manual)
+### This is typically handled automatically by the browser
+GET {{baseUrl}}/oauth/callback?code={{googleAuthCode}}
+
+### 3. Exchange Auth Code for Tokens
+POST {{baseUrl}}/oauth/exchange
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "auth_code": "{{googleAuthCode}}",
+  "client_id": "{{googleClientId}}",
+  "client_secret": "{{googleClientSecret}}",
+  "redirect_uris": [
+    "{{baseUrl}}/oauth/callback"
+  ]
+}
+
+
+### =============================================================================
+### DRIVE SETUP
+### =============================================================================
+
+### 1. Get Start Page Token
+POST {{baseUrl}}/drive/startPageToken
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "google_access_token": "{{googleAccessToken}}"
+}
+
+### 2. Create Watch Channel
+POST {{baseUrl}}/drive/watch
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "google_access_token": "{{googleAccessToken}}",
+  "google_drive_start_page_token": "{{googleDriveStartPageToken}}",
+  "worker_drive_webhook_url": "{{workerDriveWebhookUrl}}"
+}
+
+
+### =============================================================================
+### DRIVE OPERATIONS
+### =============================================================================
+
+### Download Changed File
+POST {{baseUrl}}/drive/download
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+
+{
+  "google_access_token": "{{googleAccessToken}}",
+  "file_name": "document.pdf",
+  "google_drive_start_page_token": "{{googleDriveStartPageToken}}"
+}
+
+
+### =============================================================================
+### WEBHOOK EVENTS
+### =============================================================================
+
+### Drive Webhook Handler - Sync Event
+POST {{baseUrl}}/drive/webhook
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+X-Goog-Resource-State: sync
+X-Goog-Channel-Token: your_webhook_token
+X-Goog-Resource-ID: resource_id
+X-Goog-Channel-ID: channel_id
+
+{
+  "google_drive_folder_id": "{{googleDriveFolderId}}",
+  "google_access_token": "{{googleAccessToken}}",
+  "google_drive_start_page_token": "{{googleDriveStartPageToken}}"
+}
+
+### Drive Webhook Handler - Change Event
+POST {{baseUrl}}/drive/webhook
+Authorization: Bearer {{authToken}}
+Content-Type: application/json
+X-Goog-Resource-State: change
+X-Goog-Channel-Token: your_webhook_token
+X-Goog-Resource-ID: resource_id
+X-Goog-Channel-ID: channel_id
+
+{
+  "google_drive_folder_id": "{{googleDriveFolderId}}",
+  "google_access_token": "{{googleAccessToken}}",
+  "google_drive_start_page_token": "{{googleDriveStartPageToken}}"
+}
+
+
+### =============================================================================
+### MONITORING
+### =============================================================================
+
+### Wrangler Tail Stream
+GET {{baseUrl}}/wrangler/tail
+Authorization: Bearer {{authToken}}
+Accept: text/event-stream
