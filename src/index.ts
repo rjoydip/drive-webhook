@@ -6,7 +6,16 @@ import { cache } from "hono/cache";
 import { except } from "hono/combine";
 import { csrf } from "hono/csrf";
 import { secureHeaders } from "hono/secure-headers";
-import { array, message, nonEmpty, object, pipe, string, trim } from "valibot";
+import {
+	array,
+	message,
+	nonEmpty,
+	object,
+	optional,
+	pipe,
+	string,
+	trim,
+} from "valibot";
 import {
 	fetchAndLogChanges,
 	generateAuthUrl,
@@ -70,6 +79,7 @@ app.use(
 /*                               Wrangler Tail                                */
 /* -------------------------------------------------------------------------- */
 
+// Wrangler Tail
 app.get("/wrangler/tail", async (c) => {
 	logger.log("🚀 Starting Wrangler log tailing session");
 	logger.log("🔗 Connecting to Realtime Wrangler API...");
@@ -113,6 +123,7 @@ app.get("/wrangler/tail", async (c) => {
 /*                               Drive Handlers                               */
 /* -------------------------------------------------------------------------- */
 
+// Drive Webhook
 app.post(
 	"/drive/webhook",
 	allowGoogleOnly,
@@ -123,14 +134,8 @@ app.post(
 				pipe(string(), trim()),
 				"Google Drive Folder ID is required",
 			),
-			access_token: message(
-				pipe(string(), trim()),
-				"Google Access Token is required",
-			),
-			drive_start_page_token: message(
-				pipe(string(), trim()),
-				"Google Drive Start Page Token is required",
-			),
+			access_token: optional(pipe(string(), trim())),
+			drive_start_page_token: optional(pipe(string(), trim())),
 		}),
 	),
 	async (c) => {
@@ -198,16 +203,14 @@ app.post(
 	},
 );
 
+// Drive Watch
 app.post(
 	"/drive/watch",
 	sValidator(
 		"json",
 		object({
-			access_token: message(pipe(string(), trim()), "Access token is required"),
-			drive_start_page_token: message(
-				pipe(string(), trim()),
-				"Start page token is required",
-			),
+			access_token: optional(pipe(string(), trim())),
+			drive_start_page_token: optional(pipe(string(), trim())),
 			worker_drive_webhook_url: message(
 				pipe(string(), trim()),
 				"Worker Drive Webhook URL is required",
@@ -256,7 +259,10 @@ app.post(
 			const expiration = Date.now() + EXPIRATION_MS;
 
 			// 3️⃣ Get valid access token
-			let accessToken = c.req.valid("json").access_token;
+			let accessToken =
+				c.req.valid("json").access_token ||
+				(await getValidAccessToken(c.env)) ||
+				(await c.env.drive_kv.get("accessToken"));
 
 			if (!accessToken) {
 				accessToken = await getValidAccessToken(c.env);
@@ -325,6 +331,7 @@ app.post(
 	},
 );
 
+// Dtive Start Page Token
 app.post(
 	"/drive/startPageToken",
 	sValidator(
@@ -392,23 +399,35 @@ app.post(
 	},
 );
 
+// Drive Download
 app.post(
 	"/drive/download",
 	sValidator(
 		"json",
 		object({
-			access_token: message(pipe(string(), trim()), "Access token is required"),
+			access_token: optional(pipe(string(), trim())),
 			file_name: message(pipe(string(), trim()), "File name is required"),
-			drive_start_page_token: message(
-				pipe(string(), trim()),
-				"Start page token is required",
-			),
+			drive_start_page_token: optional(pipe(string(), trim())),
 		}),
 	),
 	async (c) => {
 		try {
-			const { access_token, file_name, drive_start_page_token } =
-				c.req.valid("json");
+			const { file_name } = c.req.valid("json");
+			const access_token =
+				c.req.valid("json").access_token || (await getValidAccessToken(c.env));
+			const drive_start_page_token = await getOrUpdateKV(
+				c.env,
+				"drive_start_page_token",
+				c.req.valid("json").drive_start_page_token,
+			);
+
+			if (!access_token) {
+				return c.json({ message: "Access Token not found" }, 500);
+			}
+
+			if (!drive_start_page_token) {
+				return c.json({ message: "Drive start page token not found" }, 500);
+			}
 
 			// Fetch changes
 			const changesRes = await fetch(
@@ -469,40 +488,48 @@ app.post(
 /*                               OAuth Handlers                                */
 /* -------------------------------------------------------------------------- */
 
-/**
- * Exchange Google OAuth code for tokens
- */
+// Exchange Google OAuth code for tokens
 app.post(
 	"/oauth/exchange",
 	sValidator(
 		"json",
 		object({
-			auth_code: message(
+			auth_code: optional(
 				pipe(string(), trim()),
 				"Google OAuth2 code is required",
 			),
-			client_id: message(
+			client_id: optional(
 				pipe(string(), trim()),
 				"Google Client ID is required",
 			),
-			client_secret: message(
+			client_secret: optional(
 				pipe(string(), trim()),
 				"Google Client Secret is required",
 			),
-			redirect_uris: message(
-				pipe(array(pipe(string(), trim()))),
-				"Redirect URIs must be an array of strings",
-			),
+			redirect_uris: optional(pipe(array(pipe(string(), trim())))),
 		}),
 	),
 	async (c) => {
 		const bodyData = c.req.valid("json");
 
 		// Prioritize request body params, fallback to KV
-		const client_id = bodyData.client_id;
-		const client_secret = bodyData.client_secret;
-		const redirect_uris = bodyData.redirect_uris;
-		const auth_code = bodyData.auth_code;
+		const client_id = await getOrUpdateKV(
+			c.env,
+			"client_id",
+			bodyData.client_id,
+		);
+		const client_secret = await getOrUpdateKV(
+			c.env,
+			"client_secret",
+			bodyData.client_secret,
+		);
+		const redirect_uris =
+			bodyData.redirect_uris || (await c.env.drive_kv.get("redirect_uris"));
+		const auth_code = await getOrUpdateKV(
+			c.env,
+			"auth_code",
+			bodyData.auth_code,
+		);
 
 		if (!auth_code) {
 			logger.error("❌ Missing Google OAuth code");
@@ -515,10 +542,6 @@ app.post(
 
 		if (!client_secret) {
 			throw new Error("🚨 No client secret available");
-		}
-
-		if (!redirect_uris) {
-			throw new Error("🚨 No redirect URIs available");
 		}
 
 		try {
@@ -538,9 +561,6 @@ app.post(
 			);
 
 			await Promise.all([
-				c.env.drive_kv.put("client_id", client_id),
-				c.env.drive_kv.put("client_secret", client_secret),
-				c.env.drive_kv.put("redirect_uris", JSON.stringify(redirect_uris)),
 				c.env.drive_kv.put("accessToken", token.access_token ?? ""),
 				c.env.drive_kv.put(
 					"accessTokenExpiry",
@@ -573,9 +593,7 @@ app.post(
 	},
 );
 
-/**
- * Google OAuth redirect callback
- */
+// Google OAuth redirect callback
 app.get(
 	"/oauth/callback",
 	sValidator(
@@ -605,9 +623,7 @@ app.get(
 	},
 );
 
-/**
- * Generates/Register Google OAuth consent URL
- */
+// Generates/Register Google OAuth consent URL
 app.post(
 	"/oauth/url",
 	sValidator(

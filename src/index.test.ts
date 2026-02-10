@@ -26,9 +26,13 @@ mock.module("./helper", () => ({
 	validateDriveWebhook: mock(() => Promise.resolve(true)),
 	fetchAndLogChanges: mock(() => Promise.resolve({ changes: [] })),
 	generateAuthUrl: mock(() => "https://accounts.google.com/o/oauth2/auth?..."),
-	getOrUpdateKV: mock((_: any, __: string, value: string) =>
-		Promise.resolve(value),
-	),
+	getOrUpdateKV: mock(async (env: AppBindings, key: string, value?: string | null) => {
+		if (value) {
+			await env.drive_kv.put(key, value);
+			return value;
+		}
+		return await env.drive_kv.get(key);
+	}),
 	getValidAccessToken: mock(() => Promise.resolve("mock_valid_token")),
 }));
 
@@ -214,13 +218,15 @@ describe("Drive Webhook API", () => {
 		});
 
 		test("should reject request with missing auth code", async () => {
+			await mockEnv.drive_kv.delete("redirect_uris");
+
 			const req = new Request("http://localhost/oauth/exchange", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: "Bearer test_auth_key",
 				},
-				body: JSON.stringify({}),
+				body: JSON.stringify({ auth_code: "" }),
 			});
 
 			const res = await app.fetch(req, mockEnv);

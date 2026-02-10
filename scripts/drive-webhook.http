@@ -6,14 +6,14 @@
 ### =============================================================================
 
 @baseUrl = http://localhost:8787
-@authToken = your_auth_key_here
-@googleClientId = your_google_client_id
-@googleClientSecret = your_google_client_secret
-@googleAuthCode = 
-@googleAccessToken = 
-@googleRefreshToken = 
-@googleDriveStartPageToken = 
-@googleDriveFolderId = 
+@authToken = <your_auth_key_here>
+@googleClientId = <your_google_client_id>
+@googleClientSecret = <your_google_client_secret>
+@googleAuthCode = <your_google_auth_code>
+@googleAccessToken = <your_google_access_token>
+@googleRefreshToken = <your_google_refresh_token>
+@googleDriveStartPageToken = <your_google_drive_start_page_token>
+@googleDriveFolderId = <your_google_drive_folder_id>
 @workerDriveWebhookUrl = http://localhost:8787/drive/webhook
 
 
