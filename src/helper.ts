@@ -102,7 +102,7 @@ export async function renewDriveWatchIfNeeded(env: AppBindings) {
 	] = await Promise.all([
 		env.drive_kv.get("driveChannelId"),
 		env.drive_kv.get("driveResourceId"),
-		env.drive_kv.get("google_drive_start_page_token"),
+		env.drive_kv.get("drive_start_page_token"),
 		env.drive_kv.get("worker_drive_webhook_url"),
 		env.drive_kv.get("driveWebhookToken"),
 		getValidAccessToken(env),
@@ -146,8 +146,8 @@ export async function renewDriveWatchIfNeeded(env: AppBindings) {
 
 	const res = await watchChannel({
 		accessToken,
-		channelId,
-		expiration,
+		channelId: newChannelId,
+		expiration: expirationMs,
 		startPageToken,
 		webhookToken,
 		webhookUrl,
@@ -191,8 +191,8 @@ export async function getAccessTokens(
 
 async function refreshAccessToken(env: AppBindings) {
 	const refreshToken = await env.drive_kv.get("refreshToken");
-	const clientId = await env.drive_kv.get("google_client_id");
-	const clientSecret = await env.drive_kv.get("google_client_secret");
+	const clientId = await env.drive_kv.get("client_id");
+	const clientSecret = await env.drive_kv.get("client_secret");
 
 	if (!refreshToken) {
 		throw new Error("🚨 No refresh token available");
@@ -316,7 +316,7 @@ export async function fetchAndLogChanges(
 ): Promise<DriveChange | string> {
 	const startPageToken =
 		googleDriveStartPageToken ??
-		(await env.drive_kv.get("google_drive_start_page_token"));
+		(await env.drive_kv.get("drive_start_page_token"));
 
 	if (!startPageToken) {
 		logger.warn("⚠️ Google Drive Start Page Token is missing in KV");
@@ -349,10 +349,7 @@ export async function fetchAndLogChanges(
 	}
 
 	if (data.newStartPageToken) {
-		await env.drive_kv.put(
-			"google_drive_start_page_token",
-			data.newStartPageToken,
-		);
+		await env.drive_kv.put("drive_start_page_token", data.newStartPageToken);
 	}
 
 	return data;

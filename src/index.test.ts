@@ -23,12 +23,19 @@ mock.module("./helper", () => ({
 			json: async () => ({ resourceId: "mock_resource_id" }),
 		} as Response),
 	),
-	validateDriveWebhook: mock(() => Promise.resolve(true)),
+	validateDriveWebhook: mock(
+		(expected?: string | null, received?: string) =>
+			Promise.resolve(!!received && received === expected),
+	),
 	fetchAndLogChanges: mock(() => Promise.resolve({ changes: [] })),
 	generateAuthUrl: mock(() => "https://accounts.google.com/o/oauth2/auth?..."),
-	getOrUpdateKV: mock((_: any, __: string, value: string) =>
-		Promise.resolve(value),
-	),
+	getOrUpdateKV: mock(async (env: AppBindings, key: string, value?: string | null) => {
+		if (value) {
+			await env.drive_kv.put(key, value);
+			return value;
+		}
+		return await env.drive_kv.get(key);
+	}),
 	getValidAccessToken: mock(() => Promise.resolve("mock_valid_token")),
 }));
 
@@ -214,13 +221,15 @@ describe("Drive Webhook API", () => {
 		});
 
 		test("should reject request with missing auth code", async () => {
+			await mockEnv.drive_kv.delete("redirect_uris");
+
 			const req = new Request("http://localhost/oauth/exchange", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 					Authorization: "Bearer test_auth_key",
 				},
-				body: JSON.stringify({}),
+				body: JSON.stringify({ auth_code: "" }),
 			});
 
 			const res = await app.fetch(req, mockEnv);
@@ -243,6 +252,32 @@ describe("Drive Webhook API", () => {
 			const res = await app.fetch(req, mockEnv);
 
 			expect(res.status).toBe(400);
+		});
+
+		test("should use stored client credentials if missing in body", async () => {
+			await mockEnv.drive_kv.put("client_id", "stored_client_id");
+			await mockEnv.drive_kv.put("client_secret", "stored_client_secret");
+			await mockEnv.drive_kv.put(
+				"redirect_uris",
+				JSON.stringify(["http://localhost/oauth/callback"]),
+			);
+
+			const req = new Request("http://localhost/oauth/exchange", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer test_auth_key",
+				},
+				body: JSON.stringify({
+					auth_code: "test_auth_code",
+				}),
+			});
+
+			const res = await app.fetch(req, mockEnv);
+			const data = await res.json();
+
+			expect(res.status).toBe(200);
+			expect(data.message).toContain("successful");
 		});
 	});
 
@@ -318,6 +353,7 @@ describe("Drive Webhook API", () => {
 		});
 
 		test("should reject insecure http webhook URL", async () => {
+			process.env.ENVIRONMENT = "test"
 			const req = new Request("http://localhost/drive/watch", {
 				method: "POST",
 				headers: {
@@ -336,6 +372,7 @@ describe("Drive Webhook API", () => {
 
 			expect(res.status).toBe(400);
 			expect(data.message).toContain("Insecure");
+			delete process.env.ENVIRONMENT
 		});
 
 		test("should reject request with missing fields", async () => {
@@ -354,6 +391,28 @@ describe("Drive Webhook API", () => {
 
 			expect(res.status).toBe(400);
 		});
+
+		test("should use stored configuration if optional params are missing", async () => {
+			await mockEnv.drive_kv.put("drive_start_page_token", "stored_page_token");
+			// access_token will be mocked via getValidAccessToken
+
+			const req = new Request("http://localhost/drive/watch", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer test_auth_key",
+				},
+				body: JSON.stringify({
+					worker_drive_webhook_url: "https://example.com/webhook",
+				}),
+			});
+
+			const res = await app.fetch(req, mockEnv);
+			const data = await res.json();
+
+			expect(res.status).toBe(200);
+			expect(data.channelId).toBeDefined();
+		});
 	});
 
 	describe("POST /drive/webhook", () => {
@@ -364,7 +423,6 @@ describe("Drive Webhook API", () => {
 					"Content-Type": "application/json",
 					Authorization: "Bearer test_auth_key",
 					"X-Goog-Resource-State": "sync",
-					"CF-Connecting-IP": "74.125.0.1", // Valid Google IP
 				},
 				body: JSON.stringify({
 					drive_folder_id: "test_folder_id",
@@ -391,7 +449,6 @@ describe("Drive Webhook API", () => {
 					"X-Goog-Resource-State": "change",
 					"X-Goog-Channel-Token": "valid_token",
 					Authorization: "Bearer test_auth_key",
-					"CF-Connecting-IP": "74.125.0.1", // Valid Google IP
 				},
 				body: JSON.stringify({
 					drive_folder_id: "test_folder_id",
@@ -408,14 +465,14 @@ describe("Drive Webhook API", () => {
 		});
 
 		test("should reject unauthorized webhook calls", async () => {
-			await mockEnv.drive_kv.put("driveWebhookToken", "valid_token");
+			await mockEnv.drive_kv.put("driveWebhookToken", "a-real-token");
 
 			const req = new Request("http://localhost/drive/webhook", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 					"X-Goog-Resource-State": "change",
-					"X-Goog-Channel-Token": "invalid_token",
+					"X-Goog-Channel-Token": "an-invalid-token",
 					Authorization: "Bearer test_auth_key",
 				},
 				body: JSON.stringify({
@@ -427,7 +484,32 @@ describe("Drive Webhook API", () => {
 
 			const res = await app.fetch(req, mockEnv);
 
-			expect(res.status).toBe(403);
+			expect(res.status).toBe(401);
+		});
+
+		test("should use stored configuration if optional params are missing", async () => {
+			await mockEnv.drive_kv.put("accessToken", "stored_access_token");
+			await mockEnv.drive_kv.put("drive_start_page_token", "stored_page_token");
+			await mockEnv.drive_kv.put("driveWebhookToken", "valid_token");
+
+			const req = new Request("http://localhost/drive/webhook", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					"X-Goog-Resource-State": "change",
+					"X-Goog-Channel-Token": "valid_token",
+					Authorization: "Bearer test_auth_key",
+				},
+				body: JSON.stringify({
+					drive_folder_id: "test_folder_id",
+				}),
+			});
+
+			const res = await app.fetch(req, mockEnv);
+			const data = await res.json();
+
+			expect(res.status).toBe(200);
+			expect(data.message).toContain("processed");
 		});
 	});
 
@@ -519,6 +601,51 @@ describe("Drive Webhook API", () => {
 			const res = await app.fetch(req, mockEnv);
 
 			expect(res.status).toBe(400);
+		});
+
+		test("should use stored configuration if optional params are missing", async () => {
+			await mockEnv.drive_kv.put("drive_start_page_token", "stored_page_token");
+			// access_token mocked via getValidAccessToken
+
+			global.fetch = mock((url: string) => {
+				if (url.includes("/changes?")) {
+					return Promise.resolve(
+						new Response(
+							JSON.stringify({
+								changes: [
+									{
+										file: {
+											id: "file123",
+											name: "test.pdf",
+											mimeType: "application/pdf",
+										},
+									},
+								],
+							}),
+							{ status: 200 },
+						),
+					);
+				}
+				return Promise.resolve(
+					new Response(new Blob(["file content"]), { status: 200 }),
+				);
+			}) as any;
+
+			const req = new Request("http://localhost/drive/download", {
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Authorization: "Bearer test_auth_key",
+				},
+				body: JSON.stringify({
+					file_name: "test.pdf",
+				}),
+			});
+
+			const res = await app.fetch(req, mockEnv);
+
+			expect(res.status).toBe(200);
+			expect(res.headers.get("Content-Type")).toBe("application/pdf");
 		});
 	});
 

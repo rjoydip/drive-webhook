@@ -6,15 +6,15 @@
 ### =============================================================================
 
 @baseUrl = http://localhost:8787
-@authToken = your_auth_key_here
-@googleClientId = your_google_client_id
-@googleClientSecret = your_google_client_secret
-@googleAuthCode = 
-@googleAccessToken = 
-@googleRefreshToken = 
-@googleDriveStartPageToken = 
-@googleDriveFolderId = 
-@workerDriveWebhookUrl = http://localhost:8787/drive/webhook
+@authToken = <your_auth_key_here>
+@googleClientId = <your_google_client_id>
+@googleClientSecret = <your_google_client_secret>
+@googleAuthCode = <your_google_auth_code>
+@googleAccessToken = <your_google_access_token>
+@googleRefreshToken = <your_google_refresh_token>
+@googleDriveStartPageToken = <your_google_drive_start_page_token>
+@googleDriveFolderId = <your_google_drive_folder_id>
+@workerDriveWebhookUrl = {{baseUrl}}/drive/webhook
 
 
 ### =============================================================================
@@ -40,8 +40,8 @@ Authorization: Bearer {{authToken}}
 Content-Type: application/json
 
 {
-  "google_client_id": "{{googleClientId}}",
-  "google_client_secret": "{{googleClientSecret}}",
+  "client_id": "{{googleClientId}}",
+  "client_secret": "{{googleClientSecret}}",
   "redirect_uris": [
     "{{baseUrl}}/oauth/callback"
   ]
@@ -76,7 +76,7 @@ Authorization: Bearer {{authToken}}
 Content-Type: application/json
 
 {
-  "google_access_token": "{{googleAccessToken}}"
+  "access_token": "{{googleAccessToken}}"
 }
 
 ### 2. Create Watch Channel
@@ -85,8 +85,8 @@ Authorization: Bearer {{authToken}}
 Content-Type: application/json
 
 {
-  "google_access_token": "{{googleAccessToken}}",
-  "google_drive_start_page_token": "{{googleDriveStartPageToken}}",
+  "access_token": "{{googleAccessToken}}",
+  "drive_start_page_token": "{{googleDriveStartPageToken}}",
   "worker_drive_webhook_url": "{{workerDriveWebhookUrl}}"
 }
 
@@ -101,9 +101,9 @@ Authorization: Bearer {{authToken}}
 Content-Type: application/json
 
 {
-  "google_access_token": "{{googleAccessToken}}",
+  "access_token": "{{googleAccessToken}}",
   "file_name": "document.pdf",
-  "google_drive_start_page_token": "{{googleDriveStartPageToken}}"
+  "drive_start_page_token": "{{googleDriveStartPageToken}}"
 }
 
 
@@ -121,9 +121,9 @@ X-Goog-Resource-ID: resource_id
 X-Goog-Channel-ID: channel_id
 
 {
-  "google_drive_folder_id": "{{googleDriveFolderId}}",
-  "google_access_token": "{{googleAccessToken}}",
-  "google_drive_start_page_token": "{{googleDriveStartPageToken}}"
+  "drive_folder_id": "{{googleDriveFolderId}}",
+  "access_token": "{{googleAccessToken}}",
+  "drive_start_page_token": "{{googleDriveStartPageToken}}"
 }
 
 ### Drive Webhook Handler - Change Event
@@ -136,9 +136,9 @@ X-Goog-Resource-ID: resource_id
 X-Goog-Channel-ID: channel_id
 
 {
-  "google_drive_folder_id": "{{googleDriveFolderId}}",
-  "google_access_token": "{{googleAccessToken}}",
-  "google_drive_start_page_token": "{{googleDriveStartPageToken}}"
+  "drive_folder_id": "{{googleDriveFolderId}}",
+  "access_token": "{{googleAccessToken}}",
+  "drive_start_page_token": "{{googleDriveStartPageToken}}"
 }
 
 
