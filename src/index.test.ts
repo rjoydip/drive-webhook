@@ -23,7 +23,10 @@ mock.module("./helper", () => ({
 			json: async () => ({ resourceId: "mock_resource_id" }),
 		} as Response),
 	),
-	validateDriveWebhook: mock(() => Promise.resolve(true)),
+	validateDriveWebhook: mock(
+		(expected?: string | null, received?: string) =>
+			Promise.resolve(!!received && received === expected),
+	),
 	fetchAndLogChanges: mock(() => Promise.resolve({ changes: [] })),
 	generateAuthUrl: mock(() => "https://accounts.google.com/o/oauth2/auth?..."),
 	getOrUpdateKV: mock(async (env: AppBindings, key: string, value?: string | null) => {
@@ -420,7 +423,6 @@ describe("Drive Webhook API", () => {
 					"Content-Type": "application/json",
 					Authorization: "Bearer test_auth_key",
 					"X-Goog-Resource-State": "sync",
-					"CF-Connecting-IP": "74.125.0.1", // Valid Google IP
 				},
 				body: JSON.stringify({
 					drive_folder_id: "test_folder_id",
@@ -447,7 +449,6 @@ describe("Drive Webhook API", () => {
 					"X-Goog-Resource-State": "change",
 					"X-Goog-Channel-Token": "valid_token",
 					Authorization: "Bearer test_auth_key",
-					"CF-Connecting-IP": "74.125.0.1", // Valid Google IP
 				},
 				body: JSON.stringify({
 					drive_folder_id: "test_folder_id",
@@ -464,14 +465,14 @@ describe("Drive Webhook API", () => {
 		});
 
 		test("should reject unauthorized webhook calls", async () => {
-			await mockEnv.drive_kv.put("driveWebhookToken", "valid_token");
+			await mockEnv.drive_kv.put("driveWebhookToken", "a-real-token");
 
 			const req = new Request("http://localhost/drive/webhook", {
 				method: "POST",
 				headers: {
 					"Content-Type": "application/json",
 					"X-Goog-Resource-State": "change",
-					"X-Goog-Channel-Token": "invalid_token",
+					"X-Goog-Channel-Token": "an-invalid-token",
 					Authorization: "Bearer test_auth_key",
 				},
 				body: JSON.stringify({
@@ -483,7 +484,7 @@ describe("Drive Webhook API", () => {
 
 			const res = await app.fetch(req, mockEnv);
 
-			expect(res.status).toBe(403);
+			expect(res.status).toBe(401);
 		});
 
 		test("should use stored configuration if optional params are missing", async () => {
@@ -498,7 +499,6 @@ describe("Drive Webhook API", () => {
 					"X-Goog-Resource-State": "change",
 					"X-Goog-Channel-Token": "valid_token",
 					Authorization: "Bearer test_auth_key",
-					"CF-Connecting-IP": "74.125.0.1", // Valid Google IP
 				},
 				body: JSON.stringify({
 					drive_folder_id: "test_folder_id",
