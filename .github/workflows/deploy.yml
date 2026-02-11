@@ -30,4 +30,5 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: deploy --minify
         env:
+          ENVIRONMENT: production
           WEBHOOK_AUTH_KEY: ${{ secrets.WEBHOOK_AUTH_KEY }}

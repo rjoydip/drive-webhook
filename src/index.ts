@@ -1,3 +1,4 @@
+import { env } from "node:process";
 import type { ScheduledController } from "@cloudflare/workers-types";
 import { sValidator } from "@hono/standard-validator";
 import { type ExecutionContext, Hono } from "hono";
@@ -26,7 +27,7 @@ import {
 	validateDriveWebhook,
 	watchChannel,
 } from "./helper";
-import { allowGoogleOnly, rateLimit } from "./middleware";
+import { rateLimit } from "./middleware";
 import type { AppBindings, OAuthSecrets } from "./types";
 import { logger } from "./utils";
 
@@ -126,7 +127,6 @@ app.get("/wrangler/tail", async (c) => {
 // Drive Webhook
 app.post(
 	"/drive/webhook",
-	allowGoogleOnly,
 	sValidator(
 		"json",
 		object({
@@ -229,7 +229,11 @@ app.post(
 				body.worker_drive_webhook_url,
 			);
 
-			if (webhookUrl?.startsWith("http://")) {
+			if (
+				env.ENVIRONMENT &&
+				env.ENVIRONMENT !== "development" &&
+				webhookUrl?.startsWith("http://")
+			) {
 				logger.warn("⚠️ Insecure webhook URL (http). Consider using https.");
 
 				return c.json(
